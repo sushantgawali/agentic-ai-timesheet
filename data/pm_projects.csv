@@ -1,0 +1,5 @@
+name,customer,budget_hours,budget_cost,end_date,status
+Website Redesign,Acme Corp,100,8000,2026-03-15,active
+Mobile App,Acme Corp,200,15000,2026-06-30,active
+ERP Integration,Globex Inc,80,7500,2026-04-30,active
+Legacy Migration,Globex Inc,50,4000,2026-02-28,archived

@@ -1,0 +1,6 @@
+username,role,rate,status,timezone,contract_hrs
+john,developer,75,active,America/New_York,8
+jane,teamlead,90,active,Europe/Berlin,8
+admin,admin,100,active,Asia/Kolkata,8
+bob,developer,70,active,America/New_York,8
+alice,designer,80,deactivated,Europe/London,8
