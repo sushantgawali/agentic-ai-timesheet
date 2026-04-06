@@ -188,23 +188,26 @@ flowchart TD
 
     subgraph actions ["GitHub Actions CI"]
         runner[Ubuntu Runner]
-        runner --> agent
+        runner --> entry[audit_agent_sdk.py]
 
-        subgraph agent ["audit_agent_sdk.py"]
-            sdk[Agent SDK\nOrchestrator]
-            sdk <-->|streaming\nmessages| claude[Claude API\nAnthropic]
-            sdk -->|MCP tool calls| mcp
+        subgraph sdk ["Agent SDK  claude-agent-sdk"]
+            entry --> orch[Orchestrator\nquery&#40;&#41;]
+            orch <-->|streaming| cli[Claude Code CLI]
+        end
 
-            subgraph mcp ["MCP Tool Server  audit-tools"]
-                t1[load_timesheet_data]
-                t2[run_audit_checks]
-                t3[generate_html_report]
-                t1 --> t2 --> t3
-            end
+        cli <-->|Anthropic API| claude([Claude\nclaude-sonnet-4-6])
+
+        cli -->|stdio MCP| mcp
+
+        subgraph mcp ["audit/mcp_server.py  subprocess"]
+            t1[load_timesheet_data]
+            t2[run_audit_checks]
+            t3[generate_html_report\n+ key_takeaways]
+            t1 --> t2 --> t3
         end
 
         t3 --> site[Restore gh-pages history\n+ generate_index.py]
-        site --> pages
+        site --> deploy[Deploy to GitHub Pages]
     end
 
     subgraph data ["data/"]
@@ -215,9 +218,11 @@ flowchart TD
 
     subgraph pages ["GitHub Pages"]
         idx[index.html\nReport listing]
-        rpt[audit_YYYY-MM-DD.html\nFull HTML report]
+        rpt[audit_YYYY-MM-DD.html\nFull report + AI takeaways]
         idx --> rpt
     end
+
+    deploy --> pages
 ```
 
 ### Agent SDK Internal Flow
@@ -225,26 +230,26 @@ flowchart TD
 ```mermaid
 flowchart LR
     entry[audit_agent_sdk.py]
-    entry --> sdk
 
     subgraph sdk ["Agent SDK  claude-agent-sdk"]
-        orch[Orchestrator\nquery&#40;&#41;]
-        cli[Claude Code CLI\nsubprocess]
-        orch <-->|streaming| cli
+        entry --> orch[Orchestrator\nquery&#40;&#41;]
+        orch <-->|streaming| cli[Claude Code CLI\nsubprocess]
     end
 
-    cli <-->|Anthropic API| claude([Claude\nclaude-opus-4-6])
-    cli -->|MCP tool calls| mcp
+    cli <-->|Anthropic API| claude([Claude\nclaude-sonnet-4-6])
 
-    subgraph mcp ["In-Process MCP Server  audit-tools"]
-        t1["load_timesheet_data\n@tool"]
-        t2["run_audit_checks\n@tool"]
-        t3["generate_html_report\n@tool"]
+    cli -->|stdio MCP protocol| mcp
+
+    subgraph mcp ["audit/mcp_server.py  subprocess"]
+        direction TB
+        t1[load_timesheet_data]
+        t2[run_audit_checks]
+        t3[generate_html_report]
         t1 --> t2 --> t3
     end
 
     t1 --> data[(data/\nCSV files)]
-    t3 --> out[output/\naudit_DATE.html]
+    t3 --> out[output/\naudit_DATE.html\n+ AI key takeaways]
 ```
 
 ---
