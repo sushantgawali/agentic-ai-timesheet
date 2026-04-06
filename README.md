@@ -178,6 +178,77 @@ Supports three responses:
 
 ---
 
+## Architecture
+
+### CI/CD Pipeline
+
+```mermaid
+flowchart TD
+    trigger([Push to main / Schedule]) --> actions
+
+    subgraph actions ["GitHub Actions CI"]
+        runner[Ubuntu Runner]
+        runner --> agent
+
+        subgraph agent ["audit_agent_sdk.py"]
+            sdk[Agent SDK\nOrchestrator]
+            sdk <-->|streaming\nmessages| claude[Claude API\nAnthropic]
+            sdk -->|MCP tool calls| mcp
+
+            subgraph mcp ["MCP Tool Server  audit-tools"]
+                t1[load_timesheet_data]
+                t2[run_audit_checks]
+                t3[generate_html_report]
+                t1 --> t2 --> t3
+            end
+        end
+
+        t3 --> site[Restore gh-pages history\n+ generate_index.py]
+        site --> pages
+    end
+
+    subgraph data ["data/"]
+        csv[(CSV files\ntimesheets · HR\nprojects · slack · git)]
+    end
+
+    csv --> t1
+
+    subgraph pages ["GitHub Pages"]
+        idx[index.html\nReport listing]
+        rpt[audit_YYYY-MM-DD.html\nFull HTML report]
+        idx --> rpt
+    end
+```
+
+### Agent SDK Internal Flow
+
+```mermaid
+flowchart LR
+    entry[audit_agent_sdk.py]
+    entry --> sdk
+
+    subgraph sdk ["Agent SDK  claude-agent-sdk"]
+        orch[Orchestrator\nquery&#40;&#41;]
+        cli[Claude Code CLI\nsubprocess]
+        orch <-->|streaming| cli
+    end
+
+    cli <-->|Anthropic API| claude([Claude\nclaude-opus-4-6])
+    cli -->|MCP tool calls| mcp
+
+    subgraph mcp ["In-Process MCP Server  audit-tools"]
+        t1["load_timesheet_data\n@tool"]
+        t2["run_audit_checks\n@tool"]
+        t3["generate_html_report\n@tool"]
+        t1 --> t2 --> t3
+    end
+
+    t1 --> data[(data/\nCSV files)]
+    t3 --> out[output/\naudit_DATE.html]
+```
+
+---
+
 ## Documentation
 
 | Doc | Description |
