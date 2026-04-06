@@ -1,0 +1,64 @@
+name: Timesheet Audit
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:        # manual trigger from Actions tab
+  schedule:
+    - cron: "0 6 * * 1"   # every Monday at 06:00 UTC
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run audit agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATA_DIR: data
+          OUT_DIR: output
+        run: python audit_agent.py
+
+      - name: Copy latest report as index.html
+        run: cp output/audit_$(date +%Y-%m-%d).html output/index.html
+
+      - name: Upload HTML report as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audit-report-${{ github.sha }}
+          path: output/
+          retention-days: 90
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: output/
+
+  deploy:
+    needs: audit
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

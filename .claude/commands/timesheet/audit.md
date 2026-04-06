@@ -6,11 +6,14 @@ data sources. Do NOT modify any files.
 Run the python3 script below via Bash (stdlib only). Then print the full AUDIT REPORT.
 
 ```python
-import csv, os, sys
+import csv, os, sys, html
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-DATA_DIR = "data"
+DATA_DIR  = "data"
+OUT_DIR   = "output"
+
+os.makedirs(OUT_DIR, exist_ok=True)
 
 def load(fname):
     with open(os.path.join(DATA_DIR, fname)) as f:
@@ -61,6 +64,8 @@ for g in commits:
 all_issues = []
 # issues[check] = [(user, full_detail)]  — for detailed section
 issues = defaultdict(list)
+# structured rows for the hours accuracy table
+hours_issues = []
 
 SEV = {'CRITICAL': 0, 'WARNING': 1, 'INFO': 2}
 
@@ -169,6 +174,7 @@ for i, row in enumerate(ts, start=2):
                 add(user, date, 'CHECK-13', 'INFO',
                     f"Hours mismatch: declared={declared}h vs calc={calc}h (diff={diff}h)",
                     f"  Row {i}: {user} | {date} | declared={declared}h calculated={calc}h diff={diff}h")
+                hours_issues.append({'row': i, 'user': user, 'date': date, 'project': project, 'activity': activity, 'declared': declared, 'calc': calc, 'diff': diff})
         except (ValueError, TypeError):
             pass
 
@@ -216,14 +222,14 @@ for (user, date) in sorted(all_active):
     if (user, date) not in ts_days and (user, date) not in approved_leave:
         msgs    = slack_active.get((user,date),0)
         commits = git_active.get((user,date),0)
-        add(user, date, 'CHECK-12', 'INFO',
+        add(user, date, 'CHECK-12', 'WARNING',
             f"Active but no timesheet — slack={msgs} msgs, git={commits} commits",
             f"  {user} | {date} | slack_msgs={msgs} git_commits={commits}")
 
 # --- Print Report ---
 critical_checks = ['CHECK-1','CHECK-2','CHECK-3','CHECK-4','CHECK-5']
-warning_checks  = ['CHECK-6','CHECK-7','CHECK-8','CHECK-9','CHECK-10']
-info_checks     = ['CHECK-11','CHECK-12','CHECK-13']
+warning_checks  = ['CHECK-6','CHECK-7','CHECK-8','CHECK-9','CHECK-10','CHECK-12']
+info_checks     = ['CHECK-11','CHECK-13']
 
 labels = {
     'CHECK-1':  'INVALID TIMESTAMP',
@@ -297,6 +303,172 @@ for section, checks in [('CRITICAL', critical_checks), ('WARNING', warning_check
             print("  No issues found.")
 
 print("\n=== END AUDIT REPORT ===")
+
+# --- Generate HTML Report ---
+SEV_COLOR = {'CRITICAL': '#dc2626', 'WARNING': '#d97706', 'INFO': '#2563eb'}
+SEV_BG    = {'CRITICAL': '#fef2f2', 'WARNING': '#fffbeb', 'INFO': '#eff6ff'}
+SEV_BADGE = {
+    'CRITICAL': 'background:#dc2626;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:700',
+    'WARNING':  'background:#d97706;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:700',
+    'INFO':     'background:#2563eb;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:700',
+}
+
+def badge(sev):
+    return f'<span style="{SEV_BADGE[sev]}">{sev}</span>'
+
+def h(s):
+    return html.escape(str(s))
+
+esc = h
+
+rows_html = []
+for sev_ord, user, date, check, severity, brief, _ in sorted(all_issues, key=lambda x: (x[0], x[1], x[2])):
+    if check == 'CHECK-13':
+        continue
+    bg   = SEV_BG[severity]
+    rows_html.append(
+        f'<tr style="background:{bg}">'
+        f'<td style="padding:6px 12px;white-space:nowrap">{badge(severity)}</td>'
+        f'<td style="padding:6px 12px;white-space:nowrap;font-weight:600">{h(labels[check])}</td>'
+        f'<td style="padding:6px 12px;white-space:nowrap">{h(user)}</td>'
+        f'<td style="padding:6px 12px;white-space:nowrap">{h(date)}</td>'
+        f'<td style="padding:6px 12px">{h(brief)}</td>'
+        f'</tr>'
+    )
+
+def render_check_body(c, findings, sev_color):
+    if c == 'CHECK-13':
+        if not hours_issues:
+            return '<p style="margin:4px 0;color:#6b7280;font-style:italic">No issues found.</p>'
+        th_style = 'padding:8px 10px;text-align:left;font-size:0.72rem;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;border-bottom:2px solid #e5e7eb;white-space:nowrap'
+        td_style = 'padding:6px 10px;font-size:0.82rem;border-bottom:1px solid #f3f4f6'
+        rows = []
+        for r in sorted(hours_issues, key=lambda x: (x['user'], x['date'])):
+            diff_abs = abs(r['diff'])
+            diff_color = '#dc2626' if diff_abs >= 0.4 else '#d97706' if diff_abs >= 0.25 else '#6b7280'
+            rows.append(
+                f'<tr>'
+                f'<td style="{td_style};color:#9ca3af">#{r["row"]}</td>'
+                f'<td style="{td_style};font-weight:600">{esc(r["user"])}</td>'
+                f'<td style="{td_style};white-space:nowrap">{esc(r["date"])}</td>'
+                f'<td style="{td_style}">{esc(r["project"])}</td>'
+                f'<td style="{td_style}">{esc(r["activity"])}</td>'
+                f'<td style="{td_style};text-align:right">{r["declared"]}</td>'
+                f'<td style="{td_style};text-align:right">{r["calc"]}</td>'
+                f'<td style="{td_style};text-align:right;font-weight:700;color:{diff_color}">{r["diff"]:+.2f}</td>'
+                f'</tr>'
+            )
+        return (
+            f'<div style="overflow-x:auto">'
+            f'<table style="width:100%;border-collapse:collapse;font-size:0.875rem">'
+            f'<thead><tr>'
+            f'<th style="{th_style}">Row</th>'
+            f'<th style="{th_style}">User</th>'
+            f'<th style="{th_style}">Date</th>'
+            f'<th style="{th_style}">Project</th>'
+            f'<th style="{th_style}">Activity</th>'
+            f'<th style="{th_style};text-align:right">Declared (h)</th>'
+            f'<th style="{th_style};text-align:right">Calculated (h)</th>'
+            f'<th style="{th_style};text-align:right">Diff (h)</th>'
+            f'</tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody>'
+            f'</table></div>'
+        )
+    if findings:
+        lis = ''.join(f'<li style="margin:2px 0;font-family:monospace;font-size:0.85rem">{esc(det.strip())}</li>' for (_, det) in findings)
+        return f'<ul style="margin:6px 0 0 0;padding-left:1.2em">{lis}</ul>'
+    return '<p style="margin:4px 0;color:#6b7280;font-style:italic">No issues found.</p>'
+
+detail_checks = ['CHECK-11', 'CHECK-13']
+detail_items = []
+for c in detail_checks:
+    sev_color = SEV_COLOR['INFO']
+    findings = issues[c]
+    count    = len(findings)
+    label    = labels[c]
+    body     = render_check_body(c, findings, sev_color)
+    detail_items.append(
+        f'<div style="margin-bottom:16px;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden">'
+        f'<div style="padding:8px 14px;background:#f9fafb;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:10px">'
+        f'<span style="font-weight:700;color:{sev_color}">{esc(label)}</span>'
+        f'<span style="margin-left:auto;font-size:0.8rem;color:#6b7280">{count} finding{"s" if count!=1 else ""}</span>'
+        f'</div>'
+        f'<div style="padding:8px 14px">{body}</div>'
+        f'</div>'
+    )
+
+html_out = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Timesheet Audit — {today}</title>
+<style>
+  * {{ box-sizing: border-box; }}
+  body {{ font-family: system-ui, sans-serif; margin: 0; padding: 24px; background: #f3f4f6; color: #111827; }}
+  .card {{ background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 24px; margin-bottom: 24px; }}
+  h1 {{ margin: 0 0 4px; font-size: 1.4rem; }}
+  .subtitle {{ color: #6b7280; font-size: 0.9rem; margin-bottom: 20px; }}
+  .stat-grid {{ display: flex; gap: 16px; flex-wrap: wrap; }}
+  .stat {{ flex: 1; min-width: 140px; border-radius: 8px; padding: 16px 20px; }}
+  .stat .num {{ font-size: 2rem; font-weight: 800; }}
+  .stat .lbl {{ font-size: 0.8rem; text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 0.875rem; }}
+  thead tr {{ background: #f9fafb; }}
+  th {{ padding: 10px 12px; text-align: left; font-size: 0.75rem; text-transform: uppercase; letter-spacing: .05em; color: #6b7280; border-bottom: 2px solid #e5e7eb; }}
+  tbody tr:hover {{ filter: brightness(0.97); }}
+  td {{ border-bottom: 1px solid #f3f4f6; }}
+  h2 {{ font-size: 1rem; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Timesheet Audit Report</h1>
+  <p class="subtitle">kimai_timesheets.csv &mdash; generated {today}</p>
+  <div class="stat-grid">
+    <div class="stat" style="background:#f0fdf4">
+      <div class="num" style="color:#16a34a">{len(ts)}</div>
+      <div class="lbl" style="color:#15803d">Entries Audited</div>
+    </div>
+    <div class="stat" style="background:#fef2f2">
+      <div class="num" style="color:#dc2626">{n_crit}</div>
+      <div class="lbl" style="color:#b91c1c">Critical Issues</div>
+    </div>
+    <div class="stat" style="background:#fffbeb">
+      <div class="num" style="color:#d97706">{n_warn}</div>
+      <div class="lbl" style="color:#b45309">Warnings</div>
+    </div>
+    <div class="stat" style="background:#eff6ff">
+      <div class="num" style="color:#2563eb">{n_info}</div>
+      <div class="lbl" style="color:#1d4ed8">Info</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 16px;font-size:1rem;font-weight:700">All Issues</h2>
+  <div style="overflow-x:auto">
+  <table>
+    <thead><tr>
+      <th>Severity</th><th>Check</th><th>User</th><th>Date</th><th>Issue</th>
+    </tr></thead>
+    <tbody>{''.join(rows_html)}</tbody>
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 16px;font-size:1rem;font-weight:700">Detailed Findings</h2>
+  {''.join(detail_items)}
+</div>
+</body>
+</html>"""
+
+out_path = os.path.join(OUT_DIR, f"audit_{today}.html")
+with open(out_path, 'w') as f:
+    f.write(html_out)
+
+print(f"\nHTML report written to: {out_path}")
 ```
 
 After printing the report, tell the user:
