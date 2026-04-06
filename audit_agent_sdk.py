@@ -132,6 +132,7 @@ async def main() -> None:
     )
 
     options = ClaudeAgentOptions(
+        model="claude-sonnet-4-6",
         mcp_servers={"audit": mcp_server},
         permission_mode="bypassPermissions",
         max_turns=10,
