@@ -14,6 +14,7 @@ Optional env vars: DATA_DIR (default: data), OUT_DIR (default: output)
 """
 import json
 import os
+import sys
 import anyio
 
 from claude_agent_sdk import (
@@ -111,9 +112,10 @@ async def tool_run_checks(args: dict) -> dict:
     "generate_html_report",
     "Write the HTML audit report to the output directory and return the file path. "
     "Uses results stored by run_audit_checks. Call run_audit_checks first. "
-    "Pass key_takeaways as a list of 3-5 concise insight strings to display "
-    "in the report below the summary tiles.",
-    {"key_takeaways": list},
+    "Pass key_takeaways_json as a JSON array string of 3-5 concise insight strings "
+    "to display in the report below the summary tiles. "
+    'Example: \'["Insight one.", "Insight two."]\' ',
+    {"key_takeaways_json": str},
 )
 async def tool_generate_report(args: dict) -> dict:
     try:
@@ -121,11 +123,17 @@ async def tool_generate_report(args: dict) -> dict:
             return {"content": [{"type": "text", "text": json.dumps(
                 {"error": "run_audit_checks must be called first"}
             )}]}
+        import json as _json
+        raw = args.get("key_takeaways_json", "[]")
+        try:
+            takeaways = _json.loads(raw) if raw else []
+        except Exception:
+            takeaways = [raw] if raw else []
         path = generate(
             issues=_results["issues"],
             hours_issues=_results["hours_issues"],
             total_entries=_results["total_entries"],
-            key_takeaways=args.get("key_takeaways", []),
+            key_takeaways=takeaways,
         )
         return {"content": [{"type": "text", "text": json.dumps({"status": "written", "path": path})}]}
     except Exception as exc:
@@ -156,10 +164,10 @@ async def main() -> None:
             "Run a full timesheet audit: "
             "1. Load all source data. "
             "2. Run all audit checks. "
-            "3. Analyse the findings, then call generate_html_report with "
-            "3-5 key_takeaways — concise, specific insights about the most "
-            "important patterns or problems found (e.g. who is affected, "
-            "what the root cause likely is, what needs urgent attention). "
+            "3. Call generate_html_report with key_takeaways_json set to a "
+            "JSON array string of 3-5 concise, specific insights about the "
+            "most important patterns found (who is affected, likely root cause, "
+            'what needs urgent attention). Example value: \'["Insight 1.", "Insight 2."]\'. '
             "Then print a brief plain-text summary of the findings."
         ),
         options=options,
@@ -176,4 +184,17 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    anyio.run(main)
+    try:
+        anyio.run(main)
+    except Exception as e:
+        # The Agent SDK raises when the CLI exits non-zero, which can happen
+        # even after a successful run (e.g. MCP server teardown). Treat it as
+        # success if the report file was actually written.
+        from datetime import date as _date
+        today = _date.today().isoformat()
+        report = os.path.join(os.environ.get("OUT_DIR", "output"), f"audit_{today}.html")
+        if "Command failed" in str(e) and os.path.exists(report):
+            print(f"[audit-agent-sdk] Report written to {report}", flush=True)
+            sys.exit(0)
+        print(f"[audit-agent-sdk] Fatal: {e}", file=sys.stderr)
+        sys.exit(1)
