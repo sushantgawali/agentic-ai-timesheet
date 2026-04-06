@@ -158,7 +158,8 @@ async def main() -> None:
                     print(block.text, end="", flush=True)
 
         elif isinstance(message, ResultMessage):
-            cost = f" | cost: ${message.cost_usd:.4f}" if message.cost_usd else ""
+            cost_usd = getattr(message, "cost_usd", None)
+            cost = f" | cost: ${cost_usd:.4f}" if cost_usd else ""
             print(f"\n[audit-agent-sdk] Done{cost}.", flush=True)
 
 
