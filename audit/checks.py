@@ -63,7 +63,6 @@ def run_all() -> tuple[list[dict], list[dict]]:
     approved_leave= ctx["approved_leave"]
     proj_status   = ctx["proj_status"]
     slack_active  = ctx["slack_active"]
-    git_active    = ctx["git_active"]
 
     issues: list[dict] = []
     hours_issues: list[dict] = []
@@ -252,17 +251,15 @@ def run_all() -> tuple[list[dict], list[dict]]:
                     )
                     issues.append(_issue("CHECK-2", "CRITICAL", user, date, brief, detail))
 
-    # --- CHECK-12: Active day with no timesheet ---
+    # --- CHECK-12: Active on Slack but no timesheet ---
     ts_days = {(r["user"], r["date"]) for r in ts}
-    all_active = set(slack_active.keys()) | set(git_active.keys())
-    for user, date in sorted(all_active):
+    for user, date in sorted(slack_active.keys()):
         if (user, date) not in ts_days and (user, date) not in approved_leave:
-            msgs    = slack_active.get((user, date), 0)
-            commits = git_active.get((user, date), 0)
+            msgs = slack_active[(user, date)]
             issues.append(_issue(
                 "CHECK-12", "WARNING", user, date,
-                f"Active but no timesheet — slack={msgs} msgs, git={commits} commits",
-                f"{user} | {date} | slack_msgs={msgs} git_commits={commits}",
+                f"Active on Slack but no timesheet — {msgs} messages",
+                f"{user} | {date} | slack_messages={msgs}",
             ))
 
     # Sort: severity, then user, then date

@@ -93,7 +93,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     "projects":            len(ctx["proj_status"]),
                     "approved_leave_days": len(ctx["approved_leave"]),
                     "active_slack_days":   len(ctx["slack_active"]),
-                    "active_git_days":     len(ctx["git_active"]),
                 },
             })
 

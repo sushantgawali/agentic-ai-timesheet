@@ -1,140 +1,126 @@
-user,date,messages,reactions,first_seen,last_seen
-john,2026-03-01,0,0,9:08,16:37
-john,2026-03-02,15,4,8:35,19:14
-john,2026-03-03,18,4,9:34,17:29
-john,2026-03-04,16,7,8:24,19:33
-john,2026-03-05,18,5,9:08,17:16
-john,2026-03-06,16,5,10:51,17:12
-john,2026-03-07,2,0,8:47,16:37
-john,2026-03-08,2,0,8:32,17:04
-john,2026-03-09,10,1,8:56,16:39
-john,2026-03-11,1,1,9:16,16:47
-john,2026-03-12,11,2,10:13,18:32
-john,2026-03-13,14,4,9:56,17:47
-john,2026-03-14,0,1,8:38,18:27
-john,2026-03-16,7,3,10:02,16:33
-john,2026-03-17,8,1,11:28,19:50
-john,2026-03-18,11,1,11:15,16:57
-john,2026-03-19,14,2,11:40,19:04
-john,2026-03-20,14,1,11:58,16:58
-john,2026-03-21,1,0,8:15,16:39
-john,2026-03-22,2,2,9:29,18:10
-john,2026-03-23,19,4,9:19,16:59
-john,2026-03-24,20,8,9:48,
-john,2026-03-25,9,1,10:27,18:22
-john,2026-03-26,8,2,8:35,17:40
-john,2026-03-27,5,3,,18:45
-john,2026-03-30,13,4,11:47,18:01
-john,2026-03-31,7,1,9:33,19:40
-jane,2026-03-01,0,1,,17:45
-jane,2026-03-02,5,0,8:14,16:29
-jane,2026-03-03,7,2,9:44,19:14
-jane,2026-03-04,17,1,11:20,19:55
-jane,2026-03-05,4,1,11:57,17:04
-jane,2026-03-06,10,0,9:40,16:19
-jane,2026-03-07,2,0,11:04,17:55
-jane,2026-03-09,7,1,11:00,16:29
-jane,2026-03-10,16,4,11:37,17:56
-jane,2026-03-11,12,5,8:54,16:42
-jane,2026-03-12,10,0,8:28,16:46
-jane,2026-03-13,15,7,11:04,16:05
-jane,2026-03-14,1,1,8:38,18:01
-jane,2026-03-16,10,4,8:11,19:04
-jane,2026-03-17,7,1,9:25,16:00
-jane,2026-03-18,8,3,10:14,17:04
-jane,2026-03-19,2,0,10:55,18:09
-jane,2026-03-23,17,7,10:04,19:18
-jane,2026-03-24,10,3,10:56,17:38
-jane,2026-03-25,20,2,10:43,19:29
-jane,2026-03-26,28,8,8:53,18:50
-jane,2026-03-27,15,2,9:45,19:00
-jane,2026-03-29,0,0,10:52,19:44
-jane,2026-03-30,13,4,11:02,16:50
-jane,2026-03-31,1,3,11:44,18:51
-admin,2026-03-01,1,0,8:15,18:23
-admin,2026-03-02,5,0,11:23,16:36
-admin,2026-03-03,26,6,10:45,18:57
-admin,2026-03-04,16,5,11:33,19:52
-admin,2026-03-05,14,4,9:19,18:59
-admin,2026-03-06,8,0,10:41,19:15
-admin,2026-03-07,3,0,10:12,19:32
-admin,2026-03-08,2,0,8:25,17:13
-admin,2026-03-09,15,4,11:18,16:27
-admin,2026-03-10,9,2,8:25,18:35
-admin,2026-03-11,9,6,10:21,19:37
-admin,2026-03-12,7,1,9:29,18:34
-admin,2026-03-13,1,4,10:49,18:02
-admin,2026-03-14,2,0,9:48,18:18
-admin,2026-03-15,1,0,9:34,16:58
-admin,2026-03-16,3,2,8:53,19:11
-admin,2026-03-17,16,4,11:48,18:19
-admin,2026-03-18,19,3,9:48,16:33
-admin,2026-03-19,11,1,8:47,16:02
-admin,2026-03-20,21,5,8:19,19:34
-admin,2026-03-21,1,0,8:25,17:48
-admin,2026-03-22,2,1,10:14,18:36
-admin,2026-03-23,9,1,10:56,17:26
-admin,2026-03-24,8,3,9:48,17:54
-admin,2026-03-25,9,3,10:49,19:34
-admin,2026-03-26,7,4,11:46,19:29
-admin,2026-03-27,10,0,10:01,19:51
-admin,2026-03-28,1,3,8:41,16:05
-admin,2026-03-30,15,4,11:41,16:57
-admin,2026-03-31,21,7,9:48,19:59
-bob,2026-03-01,3,1,11:49,18:50
-bob,2026-03-03,13,5,10:31,17:27
-bob,2026-03-04,10,4,11:23,17:37
-bob,2026-03-05,9,0,8:06,18:10
-bob,2026-03-06,19,5,11:48,
-bob,2026-03-07,3,3,8:43,17:33
-bob,2026-03-08,2,2,11:14,17:11
-bob,2026-03-09,10,3,9:28,19:00
-bob,2026-03-10,15,5,9:32,17:36
-bob,2026-03-11,14,6,11:35,16:17
-bob,2026-03-12,14,1,10:38,18:45
-bob,2026-03-13,8,0,11:13,17:31
-bob,2026-03-14,1,1,8:08,
-bob,2026-03-16,14,3,9:24,16:06
-bob,2026-03-17,3,0,8:08,19:22
-bob,2026-03-18,9,7,9:24,19:23
-bob,2026-03-19,11,2,11:46,17:03
-bob,2026-03-20,1,0,8:21,18:33
-bob,2026-03-21,1,0,9:26,18:17
-bob,2026-03-23,17,7,8:11,16:25
-bob,2026-03-24,11,0,,19:01
-bob,2026-03-25,2,1,11:29,16:34
-bob,2026-03-26,12,1,11:16,16:10
-bob,2026-03-27,17,6,8:01,17:57
-bob,2026-03-28,2,0,8:17,19:12
-bob,2026-03-29,1,0,8:24,18:30
-bob,2026-03-30,1,0,10:24,16:20
-bob,2026-03-31,13,2,11:33,17:10
-alice,2026-03-01,3,1,9:36,19:34
-alice,2026-03-02,9,2,9:38,19:00
-alice,2026-03-03,5,0,10:45,
-alice,2026-03-04,2,0,8:54,18:04
-alice,2026-03-05,16,4,8:21,17:10
-alice,2026-03-06,5,2,11:41,18:14
-alice,2026-03-07,1,0,10:08,16:44
-alice,2026-03-09,22,9,9:40,19:09
-alice,2026-03-10,13,5,10:10,16:52
-alice,2026-03-11,14,1,11:00,17:44
-alice,2026-03-12,3,0,8:03,19:10
-alice,2026-03-13,14,2,11:06,17:10
-alice,2026-03-14,1,0,8:20,16:04
-alice,2026-03-16,13,4,8:21,
-alice,2026-03-17,14,3,11:10,18:13
-alice,2026-03-18,6,3,10:42,
-alice,2026-03-19,3,0,9:03,19:05
-alice,2026-03-20,8,0,,17:40
-alice,2026-03-21,3,2,10:50,19:57
-alice,2026-03-22,2,1,9:23,18:11
-alice,2026-03-23,11,5,9:53,16:09
-alice,2026-03-24,10,2,10:51,17:35
-alice,2026-03-25,7,3,11:36,19:19
-alice,2026-03-26,18,3,9:07,19:11
-alice,2026-03-27,13,5,,16:43
-alice,2026-03-28,3,0,10:20,16:05
-alice,2026-03-29,0,1,11:58,19:07
-alice,2026-03-30,15,6,8:59,16:50
-alice,2026-03-31,7,1,11:16,19:36
+user,date,ts,text,thread_ts,reply_count,reaction_name,reaction_count
+himanshi,2026-03-09,1773056460.767642,,,0,,0
+himanshi,2026-03-09,1773038580.215480,"Taking a short break, back in 30",,0,rocket,1
+himanshi,2026-03-09,1773046260.386286,EOD update: completed code review tasks,,0,pray,2
+himanshi,2026-03-09,1773060540.105314,"The build is passing now, was a flaky test",,0,,0
+himanshi,2026-03-09,1773039840.652997,Need access to the prod database for debugging,1773039840.652997,2,,0
+himanshi,2026-03-09,1773042900.122469,Sprint retro notes are in Confluence,1773042900.122469,1,,0
+himanshi,2026-03-10,1773121320.873351,EOD update: completed code review tasks,,0,,0
+himanshi,2026-03-10,1773121020.703866,"The build is passing now, was a flaky test",,0,eyes,2
+himanshi,2026-03-10,1773136440.471251,Quick question about the auth flow,,0,fire,3
+himanshi,2026-03-10,1773120120.741252,Pair programming session at 3pm anyone?,,0,thumbsup,1
+himanshi,2026-03-10,1773134100.515132,Heads up — CI pipeline is broken on main,,0,,0
+himanshi,2026-03-10,1773122160.157753,PR is up for review: Entain Platform,1773122160.157753,5,,0
+himanshi,2026-03-10,1773141900.523209,Can we sync on the Entain Platform timeline?,1773141900.523209,4,,0
+himanshi,2026-03-10,1773136740.972273,Anyone seen this error before? Getting a 502 on staging,,0,,0
+himanshi,2026-03-10,1773126660.581513,Checking in — how's the Entain Platform progress?,,0,,0
+himanshi,2026-03-10,1773146460.611988,Quick question about the auth flow,,0,,0
+himanshi,2026-03-11,1773224580.111585,"Refactored the middleware layer, much cleaner now",,0,,0
+himanshi,2026-03-11,1773213780.762789,Sent the invoice to the client,1773213780.762789,3,,0
+himanshi,2026-03-11,1773209160.963276,Fixed the CORS issue on the API gateway,,0,,0
+himanshi,2026-03-11,1773202740.642270,"Updated the test suite, all green now",,0,,0
+himanshi,2026-03-11,1773220500.786847,Sprint retro notes are in Confluence,,0,,0
+himanshi,2026-03-11,1773211320.409738,,,0,,0
+himanshi,2026-03-11,1773203280.700551,,1773203280.700551,2,,0
+himanshi,2026-03-11,1773212880.331269,PR is up for review: Entain Platform,,0,,0
+himanshi,2026-03-11,1773211140.576459,Running into a weird bug with the date parser,1773211140.576459,2,,0
+himanshi,2026-03-11,1773198420.458515,"Reviewed the PR, left a few comments",,0,,0
+himanshi,2026-03-11,1773199500.663728,"Working from home today, reachable on Slack",,0,,0
+himanshi,2026-03-11,1773209220.938232,Sprint retro notes are in Confluence,,0,,0
+himanshi,2026-03-11,1773203220.710491,Design mockups are ready for review,1773203220.710491,2,,0
+himanshi,2026-03-11,1773225840.777100,Running into a weird bug with the date parser,,0,,0
+himanshi,2026-03-11,1773217740.997677,Running into a weird bug with the date parser,,0,,0
+himanshi,2026-03-11,1773220140.488493,Fixed the CORS issue on the API gateway,,0,,0
+sushant,2026-03-09,1773043200.722586,Anyone seen this error before? Getting a 502 on staging,,0,,0
+sushant,2026-03-09,1773051420.229407,"Working from home today, reachable on Slack",,0,,0
+sushant,2026-03-09,1773042300.458469,Need access to the prod database for debugging,,0,raised_hands,4
+sushant,2026-03-09,1773031380.803658,"Updated the test suite, all green now",,0,,0
+sushant,2026-03-09,1773042840.979961,Running into a weird bug with the date parser,,0,,0
+sushant,2026-03-09,1773042360.949876,Standup update: working on meeting today,,0,,0
+sushant,2026-03-09,1773052020.583418,Deployed Ballys Portal to production,,0,,0
+sushant,2026-03-09,1773032760.535699,"Refactored the middleware layer, much cleaner now",1773032760.535699,2,,0
+sushant,2026-03-09,1773030000.779126,Quick question about the auth flow,,0,,0
+sushant,2026-03-09,1773029580.226962,"Blocked on the API response format, need input",,0,,0
+sushant,2026-03-09,1773032160.399822,EOD update: completed code review tasks,,0,,0
+sushant,2026-03-09,1773047160.318144,"Refactored the middleware layer, much cleaner now",,0,thumbsup,1
+sushant,2026-03-09,1773055020.738237,"Pushed the fix to staging, can someone verify?",,0,,0
+sushant,2026-03-09,1773056880.771483,EOD update: completed development tasks,1773056880.771483,5,,0
+sushant,2026-03-09,1773056040.668663,"Finished the migration script, testing locally",1773056040.668663,2,,0
+sushant,2026-03-09,1773043920.236927,Heads up — CI pipeline is broken on main,,0,,0
+sushant,2026-03-09,1773028620.770449,Standup update: working on testing today,1773028620.770449,1,,0
+sushant,2026-03-09,1773040020.997573,"Taking a short break, back in 30",1773040020.997573,5,100,1
+sushant,2026-03-09,1773041220.797913,Heads up — CI pipeline is broken on main,1773041220.797913,4,,0
+sushant,2026-03-09,1773047220.484462,"Backlog grooming at 2pm, please join",,0,,0
+sushant,2026-03-09,1773039900.487239,Pair programming session at 3pm anyone?,,0,,0
+sushant,2026-03-09,1773054240.470629,PR is up for review: Ballys Portal,,0,thumbsup,2
+sushant,2026-03-09,1773029280.601592,Need access to the prod database for debugging,1773029280.601592,4,,0
+sushant,2026-03-09,1773056340.538431,"Client demo went well, few follow-ups noted",1773056340.538431,2,100,4
+sushant,2026-03-09,1773035880.212384,"Backlog grooming at 2pm, please join",1773035880.212384,2,thumbsup,3
+sushant,2026-03-10,1773126720.955957,Anyone seen this error before? Getting a 502 on staging,,0,,0
+sushant,2026-03-10,1773134580.602194,EOD update: completed code review tasks,1773134580.602194,1,,0
+sushant,2026-03-10,1773111360.361953,Sprint retro notes are in Confluence,,0,,0
+sushant,2026-03-10,1773115860.283812,Anyone seen this error before? Getting a 502 on staging,1773115860.283812,2,fire,1
+sushant,2026-03-10,1773138180.265712,Standup update: working on documentation today,1773138180.265712,5,,0
+sushant,2026-03-10,1773133500.485634,Let's sync on the deployment pipeline,1773133500.485634,3,,0
+sushant,2026-03-10,1773116760.667218,Deployed Ballys Portal to production,,0,,0
+sushant,2026-03-10,1773113940.232649,Standup update: working on code review today,1773113940.232649,4,,0
+sushant,2026-03-10,1773118380.162604,Updated the README with setup instructions,,0,,0
+sushant,2026-03-10,1773137100.200173,,,0,,0
+sushant,2026-03-10,1773118680.769877,Deployed Ballys Portal to production,,0,,0
+sushant,2026-03-10,1773132240.148818,Sprint retro notes are in Confluence,,0,,0
+sushant,2026-03-11,1773204720.609792,Quick question about the auth flow,1773204720.609792,5,eyes,1
+sushant,2026-03-11,1773222060.465546,Fixed the CORS issue on the API gateway,,0,100,2
+sushant,2026-03-11,1773206820.466112,Can we sync on the Ballys Portal timeline?,1773206820.466112,5,,0
+sushant,2026-03-11,1773201060.556883,Sprint retro notes are in Confluence,1773201060.556883,3,,0
+sushant,2026-03-11,1773214980.544275,"Client demo went well, few follow-ups noted",,0,pray,4
+sushant,2026-03-11,1773199860.229933,Fixed the CORS issue on the API gateway,1773199860.229933,1,rocket,4
+saroj,2026-03-09,1773049740.581983,,,0,,0
+saroj,2026-03-09,1773044520.719700,,,0,,0
+saroj,2026-03-09,1773038340.625492,Anyone seen this error before? Getting a 502 on staging,,0,,0
+saroj,2026-03-09,1773053820.693809,"Refactored the middleware layer, much cleaner now",,0,,0
+saroj,2026-03-09,1773046980.120795,"The build is passing now, was a flaky test",1773046980.120795,1,fire,4
+saroj,2026-03-09,1773057300.114381,EOD update: completed documentation tasks,1773057300.114381,1,,0
+saroj,2026-03-09,1773056340.459804,Sent the invoice to the client,,0,,0
+saroj,2026-03-09,1773044640.194223,Heads up — CI pipeline is broken on main,,0,,0
+saroj,2026-03-09,1773049380.499487,Can we sync on the Smarsh Analytics timeline?,,0,,0
+saroj,2026-03-10,1773139380.438291,Sprint retro notes are in Confluence,1773139380.438291,5,,0
+saroj,2026-03-10,1773125400.294433,,,0,,0
+saroj,2026-03-10,1773126960.241954,Anyone seen this error before? Getting a 502 on staging,,0,,0
+saroj,2026-03-10,1773140520.334813,"Finished the migration script, testing locally",,0,rocket,2
+saroj,2026-03-10,1773122340.255476,"Finished the migration script, testing locally",,0,,0
+saroj,2026-03-10,1773135720.923287,Updated the README with setup instructions,,0,,0
+saroj,2026-03-10,1773138780.205474,"Blocked on the API response format, need input",1773138780.205474,3,,0
+saroj,2026-03-11,1773201720.403517,Quick question about the auth flow,1773201720.403517,4,100,2
+saroj,2026-03-11,1773220440.175249,"Reviewed the PR, left a few comments",,0,,0
+saroj,2026-03-11,1773224280.495976,,,0,,0
+saroj,2026-03-11,1773221880.244469,Sent the invoice to the client,,0,,0
+saroj,2026-03-11,1773199980.323298,Sent the invoice to the client,,0,raised_hands,4
+saroj,2026-03-11,1773199980.263502,"The build is passing now, was a flaky test",,0,,0
+imran,2026-03-09,1773054660.519253,"Updated the test suite, all green now",,0,,0
+imran,2026-03-09,1773041160.239579,,,0,,0
+imran,2026-03-09,1773052020.539187,"Reviewed the PR, left a few comments",,0,,0
+imran,2026-03-09,1773036120.630818,"Refactored the middleware layer, much cleaner now",1773036120.630818,4,,0
+imran,2026-03-09,1773041760.660695,"Client demo went well, few follow-ups noted",1773041760.660695,5,thumbsup,1
+imran,2026-03-09,1773031200.343592,Need access to the prod database for debugging,1773031200.343592,2,,0
+imran,2026-03-09,1773045840.341911,"Working from home today, reachable on Slack",,0,100,3
+imran,2026-03-09,1773044220.404550,"Client demo went well, few follow-ups noted",1773044220.404550,3,,0
+imran,2026-03-09,1773045000.708499,,1773045000.708499,1,,0
+imran,2026-03-09,1773033600.641734,Running into a weird bug with the date parser,,0,,0
+imran,2026-03-09,1773039660.241567,Merged the feature branch into develop,1773039660.241567,5,,0
+imran,2026-03-09,1773028920.859190,"Blocked on the API response format, need input",1773028920.859190,3,,0
+imran,2026-03-10,1773139800.125740,"Reviewed the PR, left a few comments",,0,,0
+imran,2026-03-10,1773141240.996549,EOD update: completed design tasks,,0,,0
+imran,2026-03-10,1773118140.109566,PR is up for review: Entain Platform,,0,100,1
+imran,2026-03-10,1773130620.725553,"Finished the migration script, testing locally",,0,,0
+imran,2026-03-10,1773136440.800705,Standup update: working on development today,,0,,0
+imran,2026-03-10,1773136500.959171,Let's sync on the deployment pipeline,1773136500.959171,4,,0
+imran,2026-03-10,1773123480.406101,Checking in — how's the Entain Platform progress?,,0,,0
+imran,2026-03-10,1773120960.369422,"Finished the migration script, testing locally",1773120960.369422,3,,0
+imran,2026-03-10,1773127800.736630,Let's sync on the deployment pipeline,1773127800.736630,4,pray,3
+imran,2026-03-10,1773118800.544374,Design mockups are ready for review,,0,,0
+imran,2026-03-10,1773134700.272529,"Refactored the middleware layer, much cleaner now",,0,,0
+imran,2026-03-10,1773122280.535466,Fixed the CORS issue on the API gateway,1773122280.535466,1,,0
+imran,2026-03-10,1773138000.213444,"Blocked on the API response format, need input",,0,,0
+imran,2026-03-11,1773215820.493276,Let's sync on the deployment pipeline,,0,fire,1
+imran,2026-03-11,1773208080.834445,,,0,eyes,2
+imran,2026-03-11,1773202020.909854,,,0,,0

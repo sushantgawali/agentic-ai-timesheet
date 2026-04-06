@@ -71,7 +71,6 @@ def execute_tool(name: str, inputs: dict) -> str:
             "projects": len(ctx["proj_status"]),
             "approved_leave_days": len(ctx["approved_leave"]),
             "active_slack_days": len(ctx["slack_active"]),
-            "active_git_days": len(ctx["git_active"]),
         }
         return json.dumps({"status": "loaded", "summary": summary})
 

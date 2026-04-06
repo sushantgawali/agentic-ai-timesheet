@@ -10,6 +10,9 @@ DATA_DIR = os.environ.get("DATA_DIR", "data")
 
 _cache: Optional[dict] = None
 
+# Minimum number of Slack messages in a day to consider the user "active"
+SLACK_ACTIVE_THRESHOLD = 3
+
 
 def load_csv(fname: str) -> list[dict]:
     with open(os.path.join(DATA_DIR, fname)) as f:
@@ -32,7 +35,6 @@ def load_all() -> dict:
     leaves    = load_csv("hr_leave.csv")
     projects  = load_csv("pm_projects.csv")
     slack     = load_csv("slack_activity.csv")
-    commits   = load_csv("git_commits.csv")
 
     emp_rate   = {e["username"]: e.get("rate", "").strip() for e in employees}
     emp_status = {e["username"]: e.get("status", "").strip() for e in employees}
@@ -51,30 +53,28 @@ def load_all() -> dict:
         pname = p.get("project_name") or p.get("name", "")
         proj_status[pname] = p.get("status", "").strip()
 
-    slack_active: dict[tuple, int] = defaultdict(int)
+    # slack_activity.csv: each row is one message — count rows per (user, date)
+    slack_msg_count: dict[tuple, int] = defaultdict(int)
     for s in slack:
-        try:
-            if int(s.get("messages", 0)) > 5:
-                slack_active[(s["user"], s["date"])] += int(s["messages"])
-        except ValueError:
-            pass
+        user = s.get("user", "").strip()
+        date = s.get("date", "").strip()
+        if user and date:
+            slack_msg_count[(user, date)] += 1
 
-    git_active: dict[tuple, int] = defaultdict(int)
-    for g in commits:
-        try:
-            if int(g.get("commits", 0)) > 0:
-                git_active[(g["user"], g["date"])] += int(g["commits"])
-        except ValueError:
-            pass
+    # Only mark (user, date) as active if they sent >= SLACK_ACTIVE_THRESHOLD messages
+    slack_active: dict[tuple, int] = {
+        key: count
+        for key, count in slack_msg_count.items()
+        if count >= SLACK_ACTIVE_THRESHOLD
+    }
 
     _cache = {
-        "ts": ts,
-        "emp_rate": emp_rate,
-        "emp_status": emp_status,
-        "user_projs": user_projs,
+        "ts":             ts,
+        "emp_rate":       emp_rate,
+        "emp_status":     emp_status,
+        "user_projs":     user_projs,
         "approved_leave": approved_leave,
-        "proj_status": proj_status,
-        "slack_active": slack_active,
-        "git_active": git_active,
+        "proj_status":    proj_status,
+        "slack_active":   slack_active,
     }
     return _cache
