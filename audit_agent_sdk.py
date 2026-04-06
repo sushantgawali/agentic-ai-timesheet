@@ -104,9 +104,20 @@ async def tool_run_checks(args: dict) -> dict:
 @tool(
     "generate_html_report",
     "Write the HTML audit report to the output directory and return the file path. "
-    "Uses results stored by run_audit_checks — no inputs needed. "
-    "Call run_audit_checks first.",
-    {},
+    "Uses results stored by run_audit_checks. Call run_audit_checks first. "
+    "Pass key_takeaways as a list of 3-5 concise insight strings to display "
+    "in the report below the summary tiles.",
+    {
+        "type": "object",
+        "properties": {
+            "key_takeaways": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "3-5 key insights about the audit findings.",
+            }
+        },
+        "required": [],
+    },
 )
 async def tool_generate_report(args: dict) -> dict:
     if not _results:
@@ -117,6 +128,7 @@ async def tool_generate_report(args: dict) -> dict:
         issues=_results["issues"],
         hours_issues=_results["hours_issues"],
         total_entries=_results["total_entries"],
+        key_takeaways=args.get("key_takeaways", []),
     )
     return {"content": [{"type": "text", "text": json.dumps({"status": "written", "path": path})}]}
 
@@ -145,10 +157,11 @@ async def main() -> None:
             "Run a full timesheet audit: "
             "1. Load all source data. "
             "2. Run all audit checks. "
-            "3. Generate the HTML report. "
-            "Then print a concise plain-text summary of the findings — "
-            "total entries audited, critical/warning/info counts, "
-            "and the top issues by severity."
+            "3. Analyse the findings, then call generate_html_report with "
+            "3-5 key_takeaways — concise, specific insights about the most "
+            "important patterns or problems found (e.g. who is affected, "
+            "what the root cause likely is, what needs urgent attention). "
+            "Then print a brief plain-text summary of the findings."
         ),
         options=options,
     ):

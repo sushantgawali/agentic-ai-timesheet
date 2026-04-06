@@ -91,7 +91,31 @@ def _detail_card(check_id: str, label: str, findings: list[dict], hours_issues: 
     )
 
 
-def generate(issues: list[dict], hours_issues: list[dict], total_entries: int) -> str:
+def _key_takeaways_html(takeaways: list[str]) -> str:
+    if not takeaways:
+        return ""
+    items = "".join(
+        f'<li style="margin:8px 0;padding-left:4px">{esc(t)}</li>'
+        for t in takeaways
+    )
+    return f"""
+<div class="card">
+  <h2 style="margin:0 0 14px;font-size:1rem;font-weight:700;display:flex;align-items:center;gap:8px">
+    <span style="background:#7c3aed;color:#fff;border-radius:6px;padding:3px 10px;font-size:0.78rem;font-weight:700;letter-spacing:.03em">AI</span>
+    Key Takeaways
+  </h2>
+  <ul style="margin:0;padding-left:1.4em;color:#374151;line-height:1.7;font-size:0.92rem">
+    {items}
+  </ul>
+</div>"""
+
+
+def generate(
+    issues: list[dict],
+    hours_issues: list[dict],
+    total_entries: int,
+    key_takeaways: list = None,
+) -> str:
     """
     Write output/audit_YYYY-MM-DD.html and return the file path.
     """
@@ -129,6 +153,8 @@ def generate(issues: list[dict], hours_issues: list[dict], total_entries: int) -
         _detail_card(c, LABELS[c], issues_by_check[c], hours_issues)
         for c in detail_checks
     )
+
+    takeaways_html = _key_takeaways_html(key_takeaways or [])
 
     html_out = f"""<!DOCTYPE html>
 <html lang="en">
@@ -177,6 +203,8 @@ def generate(issues: list[dict], hours_issues: list[dict], total_entries: int) -
     </div>
   </div>
 </div>
+
+{takeaways_html}
 
 <div class="card">
   <h2 style="margin:0 0 16px;font-size:1rem;font-weight:700">All Issues</h2>
