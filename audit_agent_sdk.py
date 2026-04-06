@@ -47,16 +47,19 @@ _results: dict = {}
     {},
 )
 async def tool_load_data(args: dict) -> dict:
-    ctx = load_all()
-    summary = {
-        "timesheet_rows": len(ctx["ts"]),
-        "employees":       len(ctx["emp_rate"]),
-        "projects":        len(ctx["proj_status"]),
-        "approved_leave_days": len(ctx["approved_leave"]),
-        "active_slack_days":   len(ctx["slack_active"]),
-        "active_git_days":     len(ctx["git_active"]),
-    }
-    return {"content": [{"type": "text", "text": json.dumps({"status": "loaded", "summary": summary})}]}
+    try:
+        ctx = load_all()
+        summary = {
+            "timesheet_rows":      len(ctx["ts"]),
+            "employees":           len(ctx["emp_rate"]),
+            "projects":            len(ctx["proj_status"]),
+            "approved_leave_days": len(ctx["approved_leave"]),
+            "active_slack_days":   len(ctx["slack_active"]),
+            "active_git_days":     len(ctx["git_active"]),
+        }
+        return {"content": [{"type": "text", "text": json.dumps({"status": "loaded", "summary": summary})}]}
+    except Exception as exc:
+        return {"content": [{"type": "text", "text": json.dumps({"error": str(exc)})}]}
 
 
 @tool(
@@ -67,38 +70,41 @@ async def tool_load_data(args: dict) -> dict:
     {},
 )
 async def tool_run_checks(args: dict) -> dict:
-    issues, hours_issues = run_all()
-    ctx = load_all()
+    try:
+        issues, hours_issues = run_all()
+        ctx = load_all()
 
-    # Store for generate_html_report
-    _results["issues"]        = issues
-    _results["hours_issues"]  = hours_issues
-    _results["total_entries"] = len(ctx["ts"])
+        # Store for generate_html_report
+        _results["issues"]        = issues
+        _results["hours_issues"]  = hours_issues
+        _results["total_entries"] = len(ctx["ts"])
 
-    n_crit = sum(1 for i in issues if i["severity"] == "CRITICAL")
-    n_warn = sum(1 for i in issues if i["severity"] == "WARNING")
-    n_info = sum(1 for i in issues if i["severity"] == "INFO")
+        n_crit = sum(1 for i in issues if i["severity"] == "CRITICAL")
+        n_warn = sum(1 for i in issues if i["severity"] == "WARNING")
+        n_info = sum(1 for i in issues if i["severity"] == "INFO")
 
-    top = [
-        {
-            "check": i["check"],
-            "label": i["label"],
-            "user":  i["user"],
-            "date":  i["date"],
-            "brief": i["brief"],
-        }
-        for i in issues[:20]
-    ]
-    return {"content": [{"type": "text", "text": json.dumps({
-        "summary": {
-            "total_entries": len(ctx["ts"]),
-            "total_issues":  len(issues),
-            "critical": n_crit,
-            "warning":  n_warn,
-            "info":     n_info,
-        },
-        "top_issues": top,
-    })}]}
+        top = [
+            {
+                "check": i["check"],
+                "label": i["label"],
+                "user":  i["user"],
+                "date":  i["date"],
+                "brief": i["brief"],
+            }
+            for i in issues[:20]
+        ]
+        return {"content": [{"type": "text", "text": json.dumps({
+            "summary": {
+                "total_entries": len(ctx["ts"]),
+                "total_issues":  len(issues),
+                "critical": n_crit,
+                "warning":  n_warn,
+                "info":     n_info,
+            },
+            "top_issues": top,
+        })}]}
+    except Exception as exc:
+        return {"content": [{"type": "text", "text": json.dumps({"error": str(exc)})}]}
 
 
 @tool(
@@ -107,30 +113,23 @@ async def tool_run_checks(args: dict) -> dict:
     "Uses results stored by run_audit_checks. Call run_audit_checks first. "
     "Pass key_takeaways as a list of 3-5 concise insight strings to display "
     "in the report below the summary tiles.",
-    {
-        "type": "object",
-        "properties": {
-            "key_takeaways": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "3-5 key insights about the audit findings.",
-            }
-        },
-        "required": [],
-    },
+    {"key_takeaways": list},
 )
 async def tool_generate_report(args: dict) -> dict:
-    if not _results:
-        return {"content": [{"type": "text", "text": json.dumps(
-            {"error": "run_audit_checks must be called first"}
-        )}]}
-    path = generate(
-        issues=_results["issues"],
-        hours_issues=_results["hours_issues"],
-        total_entries=_results["total_entries"],
-        key_takeaways=args.get("key_takeaways", []),
-    )
-    return {"content": [{"type": "text", "text": json.dumps({"status": "written", "path": path})}]}
+    try:
+        if not _results:
+            return {"content": [{"type": "text", "text": json.dumps(
+                {"error": "run_audit_checks must be called first"}
+            )}]}
+        path = generate(
+            issues=_results["issues"],
+            hours_issues=_results["hours_issues"],
+            total_entries=_results["total_entries"],
+            key_takeaways=args.get("key_takeaways", []),
+        )
+        return {"content": [{"type": "text", "text": json.dumps({"status": "written", "path": path})}]}
+    except Exception as exc:
+        return {"content": [{"type": "text", "text": json.dumps({"error": str(exc)})}]}
 
 
 # ---------------------------------------------------------------------------
