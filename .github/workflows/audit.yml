@@ -12,7 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     permissions:
-      contents: read
+      contents: write       # needed to push accumulated reports to gh-pages branch
+      pages: write
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -30,23 +32,37 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DATA_DIR: data
           OUT_DIR: output
-        run: python audit_agent.py
+        run: python3 audit_agent.py
 
-      - name: Copy latest report as index.html
-        run: cp output/audit_$(date +%Y-%m-%d).html output/index.html
+      - name: Restore previous reports from gh-pages
+        run: |
+          git fetch origin gh-pages || true
+          mkdir -p site
+          if git ls-remote --exit-code origin gh-pages > /dev/null 2>&1; then
+            git --work-tree=site checkout origin/gh-pages -- .
+          fi
 
-      - name: Upload HTML report as artifact
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: audit-report-${{ github.sha }}
-          path: output/
-          retention-days: 90
+      - name: Copy new report to site
+        run: cp output/audit_*.html site/
+
+      - name: Generate index.html
+        run: python3 generate_index.py site/
+
+      - name: Save reports to gh-pages branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          cd site
+          git init -b gh-pages
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          git add .
+          git commit -m "audit: add report $(date +%Y-%m-%d)"
+          git push origin gh-pages --force
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: output/
+          path: site/
 
   deploy:
     needs: audit
