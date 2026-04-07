@@ -196,11 +196,11 @@ def generate(
 <body>
 <div class="card">
   <h1>Timesheet Audit Report</h1>
-  <p class="subtitle" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-    <span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 8px;font-size:0.78rem;font-weight:700">{data_version}</span>
-    <span style="background:#1e293b;color:#fff;border-radius:4px;padding:1px 8px;font-size:0.78rem;font-weight:700">{model_short}</span>
-    <span>kimai_timesheets.csv &mdash; generated {today}</span>
-  </p>
+  <div style="display:flex;align-items:baseline;gap:16px;margin:6px 0 4px;flex-wrap:wrap">
+    <span style="font-size:1.6rem;font-weight:800;color:#7c3aed">{data_version}</span>
+    <span style="font-size:1.6rem;font-weight:800;color:#1e293b">{model_short}</span>
+  </div>
+  <p class="subtitle">kimai_timesheets.csv &mdash; generated {today}</p>
   <div class="stat-grid">
     <div class="stat" style="background:#f0fdf4">
       <div class="num" style="color:#16a34a">{total_entries}</div>
