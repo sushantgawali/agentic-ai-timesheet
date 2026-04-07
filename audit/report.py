@@ -110,18 +110,28 @@ def _key_takeaways_html(takeaways: list[str]) -> str:
 </div>"""
 
 
+def _model_short(model: str) -> str:
+    """Return a short identifier for use in filenames and badges."""
+    for key in ("haiku", "sonnet", "opus"):
+        if key in model.lower():
+            return key
+    return model.split("/")[-1]  # fallback
+
+
 def generate(
     issues: list[dict],
     hours_issues: list[dict],
     total_entries: int,
     key_takeaways: list = None,
     data_version: str = "v3",
+    model: str = "claude-haiku-4-5-20251001",
 ) -> str:
     """
-    Write output/audit_{version}_YYYY-MM-DD.html and return the file path.
+    Write output/audit_{version}_{model_short}_YYYY-MM-DD.html and return the file path.
     """
     os.makedirs(OUT_DIR, exist_ok=True)
     today = date_cls.today().isoformat()
+    model_short = _model_short(model)
 
     n_crit = sum(1 for i in issues if i["severity"] == "CRITICAL")
     n_warn = sum(1 for i in issues if i["severity"] == "WARNING")
@@ -163,6 +173,8 @@ def generate(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Timesheet Audit {data_version} — {today}</title>
+<meta name="audit-version" content="{data_version}">
+<meta name="audit-model" content="{model_short}">
 <style>
   * {{ box-sizing: border-box; }}
   body {{ font-family: system-ui, sans-serif; margin: 0; padding: 24px; background: #f3f4f6; color: #111827; }}
@@ -184,9 +196,10 @@ def generate(
 <body>
 <div class="card">
   <h1>Timesheet Audit Report</h1>
-  <p class="subtitle">
-    <span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 8px;font-size:0.78rem;font-weight:700;margin-right:6px">{data_version}</span>
-    kimai_timesheets.csv &mdash; generated {today}
+  <p class="subtitle" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+    <span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 8px;font-size:0.78rem;font-weight:700">{data_version}</span>
+    <span style="background:#1e293b;color:#fff;border-radius:4px;padding:1px 8px;font-size:0.78rem;font-weight:700">{model_short}</span>
+    <span>kimai_timesheets.csv &mdash; generated {today}</span>
   </p>
   <div class="stat-grid">
     <div class="stat" style="background:#f0fdf4">
@@ -229,7 +242,7 @@ def generate(
 </body>
 </html>"""
 
-    out_path = os.path.join(OUT_DIR, f"audit_{data_version}_{today}.html")
+    out_path = os.path.join(OUT_DIR, f"audit_{data_version}_{model_short}_{today}.html")
     with open(out_path, "w") as f:
         f.write(html_out)
     return out_path

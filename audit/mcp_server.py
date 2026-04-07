@@ -144,6 +144,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 total_entries=_results["total_entries"],
                 key_takeaways=takeaways,
                 data_version=DATA_VERSION,
+                model=os.environ.get("MODEL", "claude-haiku-4-5-20251001"),
             )
             return ok({"status": "written", "path": path})
 

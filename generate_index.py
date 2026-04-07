@@ -10,22 +10,29 @@ import re
 import sys
 from datetime import datetime
 
-PATTERN = re.compile(r"^audit_(v\d+)_(\d{4}-\d{2}-\d{2})\.html$")
+PATTERN = re.compile(r"^audit_(v\d+)_([\w-]+)_(\d{4}-\d{2}-\d{2})\.html$")
+
+MODEL_COLOR = {
+    "haiku":  "#0369a1",
+    "sonnet": "#0f766e",
+    "opus":   "#7c2d12",
+}
 
 
 def generate_index(reports_dir: str) -> str:
     files = sorted(
         [f for f in os.listdir(reports_dir) if PATTERN.match(f)],
         # Sort newest date first, then highest version first
-        key=lambda f: (PATTERN.match(f).group(2), PATTERN.match(f).group(1)),
+        key=lambda f: (PATTERN.match(f).group(3), PATTERN.match(f).group(1)),
         reverse=True,
     )
 
     rows = []
     for i, fname in enumerate(files):
         m = PATTERN.match(fname)
-        version  = m.group(1)
-        date_str = m.group(2)
+        version     = m.group(1)
+        model_short = m.group(2)
+        date_str    = m.group(3)
         try:
             dt = datetime.strptime(date_str, "%Y-%m-%d")
             display = dt.strftime("%B %d, %Y")
@@ -43,6 +50,11 @@ def generate_index(reports_dir: str) -> str:
             f'<span style="background:#7c3aed;color:#fff;padding:2px 8px;'
             f'border-radius:4px;font-size:0.72rem;font-weight:700">{version}</span>'
         )
+        model_color = MODEL_COLOR.get(model_short, "#374151")
+        model_badge = (
+            f'<span style="background:{model_color};color:#fff;padding:2px 8px;'
+            f'border-radius:4px;font-size:0.72rem;font-weight:700">{model_short}</span>'
+        )
         row_bg = "#f0fdf4" if i == 0 else ("" if i % 2 == 0 else "#f9fafb")
         rows.append(
             f'<tr style="background:{row_bg}">'
@@ -50,6 +62,7 @@ def generate_index(reports_dir: str) -> str:
             f'{display}{latest_badge}</td>'
             f'<td style="padding:10px 16px;color:#6b7280;white-space:nowrap">{weekday}</td>'
             f'<td style="padding:10px 16px;white-space:nowrap">{version_badge}</td>'
+            f'<td style="padding:10px 16px;white-space:nowrap">{model_badge}</td>'
             f'<td style="padding:10px 16px">'
             f'<a href="{fname}" style="color:#2563eb;text-decoration:none;font-family:monospace;font-size:0.875rem">'
             f'{fname}</a></td>'
@@ -62,7 +75,7 @@ def generate_index(reports_dir: str) -> str:
 
     total = len(files)
     empty_msg = (
-        '<tr><td colspan="5" style="padding:24px;text-align:center;color:#6b7280;font-style:italic">'
+        '<tr><td colspan="6" style="padding:24px;text-align:center;color:#6b7280;font-style:italic">'
         "No reports generated yet.</td></tr>"
         if not rows else ""
     )
@@ -99,6 +112,7 @@ def generate_index(reports_dir: str) -> str:
         <th>Date</th>
         <th>Day</th>
         <th>Version</th>
+        <th>Model</th>
         <th>File</th>
         <th></th>
       </tr>

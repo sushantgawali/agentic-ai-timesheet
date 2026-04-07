@@ -111,6 +111,7 @@ def execute_tool(name: str, inputs: dict) -> str:
             hours_issues=_audit_results["hours_issues"],
             total_entries=_audit_results["total_entries"],
             data_version=DATA_VERSION,
+            model=os.environ.get("MODEL", "claude-haiku-4-5-20251001"),
         )
         return json.dumps({"status": "written", "path": path})
 
