@@ -115,9 +115,10 @@ def generate(
     hours_issues: list[dict],
     total_entries: int,
     key_takeaways: list = None,
+    data_version: str = "v3",
 ) -> str:
     """
-    Write output/audit_YYYY-MM-DD.html and return the file path.
+    Write output/audit_{version}_YYYY-MM-DD.html and return the file path.
     """
     os.makedirs(OUT_DIR, exist_ok=True)
     today = date_cls.today().isoformat()
@@ -161,7 +162,7 @@ def generate(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Timesheet Audit — {today}</title>
+<title>Timesheet Audit {data_version} — {today}</title>
 <style>
   * {{ box-sizing: border-box; }}
   body {{ font-family: system-ui, sans-serif; margin: 0; padding: 24px; background: #f3f4f6; color: #111827; }}
@@ -183,7 +184,10 @@ def generate(
 <body>
 <div class="card">
   <h1>Timesheet Audit Report</h1>
-  <p class="subtitle">kimai_timesheets.csv &mdash; generated {today}</p>
+  <p class="subtitle">
+    <span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 8px;font-size:0.78rem;font-weight:700;margin-right:6px">{data_version}</span>
+    kimai_timesheets.csv &mdash; generated {today}
+  </p>
   <div class="stat-grid">
     <div class="stat" style="background:#f0fdf4">
       <div class="num" style="color:#16a34a">{total_entries}</div>
@@ -225,7 +229,7 @@ def generate(
 </body>
 </html>"""
 
-    out_path = os.path.join(OUT_DIR, f"audit_{today}.html")
+    out_path = os.path.join(OUT_DIR, f"audit_{data_version}_{today}.html")
     with open(out_path, "w") as f:
         f.write(html_out)
     return out_path

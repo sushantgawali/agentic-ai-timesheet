@@ -10,18 +10,22 @@ import re
 import sys
 from datetime import datetime
 
-PATTERN = re.compile(r"^audit_(\d{4}-\d{2}-\d{2})\.html$")
+PATTERN = re.compile(r"^audit_(v\d+)_(\d{4}-\d{2}-\d{2})\.html$")
 
 
 def generate_index(reports_dir: str) -> str:
     files = sorted(
         [f for f in os.listdir(reports_dir) if PATTERN.match(f)],
+        # Sort newest date first, then highest version first
+        key=lambda f: (PATTERN.match(f).group(2), PATTERN.match(f).group(1)),
         reverse=True,
     )
 
     rows = []
     for i, fname in enumerate(files):
-        date_str = PATTERN.match(fname).group(1)
+        m = PATTERN.match(fname)
+        version  = m.group(1)
+        date_str = m.group(2)
         try:
             dt = datetime.strptime(date_str, "%Y-%m-%d")
             display = dt.strftime("%B %d, %Y")
@@ -35,12 +39,17 @@ def generate_index(reports_dir: str) -> str:
             'border-radius:4px;font-size:0.72rem;font-weight:700;margin-left:8px">Latest</span>'
             if i == 0 else ""
         )
+        version_badge = (
+            f'<span style="background:#7c3aed;color:#fff;padding:2px 8px;'
+            f'border-radius:4px;font-size:0.72rem;font-weight:700">{version}</span>'
+        )
         row_bg = "#f0fdf4" if i == 0 else ("" if i % 2 == 0 else "#f9fafb")
         rows.append(
             f'<tr style="background:{row_bg}">'
             f'<td style="padding:10px 16px;white-space:nowrap;font-weight:{"600" if i == 0 else "400"}">'
             f'{display}{latest_badge}</td>'
             f'<td style="padding:10px 16px;color:#6b7280;white-space:nowrap">{weekday}</td>'
+            f'<td style="padding:10px 16px;white-space:nowrap">{version_badge}</td>'
             f'<td style="padding:10px 16px">'
             f'<a href="{fname}" style="color:#2563eb;text-decoration:none;font-family:monospace;font-size:0.875rem">'
             f'{fname}</a></td>'
@@ -53,7 +62,7 @@ def generate_index(reports_dir: str) -> str:
 
     total = len(files)
     empty_msg = (
-        '<tr><td colspan="4" style="padding:24px;text-align:center;color:#6b7280;font-style:italic">'
+        '<tr><td colspan="5" style="padding:24px;text-align:center;color:#6b7280;font-style:italic">'
         "No reports generated yet.</td></tr>"
         if not rows else ""
     )
@@ -67,7 +76,7 @@ def generate_index(reports_dir: str) -> str:
 <style>
   * {{ box-sizing: border-box; }}
   body {{ font-family: system-ui, sans-serif; margin: 0; padding: 24px; background: #f3f4f6; color: #111827; }}
-  .card {{ background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 24px; margin-bottom: 24px; max-width: 900px; margin-left: auto; margin-right: auto; }}
+  .card {{ background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 24px; margin-bottom: 24px; max-width: 960px; margin-left: auto; margin-right: auto; }}
   h1 {{ margin: 0 0 4px; font-size: 1.4rem; }}
   .subtitle {{ color: #6b7280; font-size: 0.9rem; margin-bottom: 0; }}
   table {{ width: 100%; border-collapse: collapse; font-size: 0.9rem; }}
@@ -89,6 +98,7 @@ def generate_index(reports_dir: str) -> str:
       <tr>
         <th>Date</th>
         <th>Day</th>
+        <th>Version</th>
         <th>File</th>
         <th></th>
       </tr>

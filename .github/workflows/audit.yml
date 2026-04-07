@@ -3,6 +3,15 @@ name: Timesheet Audit
 on:
   workflow_dispatch:        # manual trigger only — run from the Actions tab
     inputs:
+      data_version:
+        description: "Data version to audit"
+        default: "v3"
+        required: true
+        type: choice
+        options:
+          - v3
+          - v2
+          - v1
       model:
         description: "Claude model to use"
         default: "claude-haiku-4-5-20251001"
@@ -45,7 +54,7 @@ jobs:
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          DATA_DIR: data
+          DATA_DIR: data/${{ inputs.data_version || 'v3' }}
           OUT_DIR: output
           MODEL: ${{ inputs.model || 'claude-haiku-4-5-20251001' }}
         run: python3 audit_agent_sdk.py
@@ -54,7 +63,7 @@ jobs:
         if: steps.sdk_run.outcome == 'failure'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          DATA_DIR: data
+          DATA_DIR: data/${{ inputs.data_version || 'v3' }}
           OUT_DIR: output
           MODEL: ${{ inputs.model || 'claude-haiku-4-5-20251001' }}
         run: python3 audit_agent.py

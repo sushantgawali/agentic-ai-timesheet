@@ -6,7 +6,8 @@ import os
 from collections import defaultdict
 from typing import Optional
 
-DATA_DIR = os.environ.get("DATA_DIR", "data")
+DATA_DIR = os.environ.get("DATA_DIR", "data/v3")
+DATA_VERSION = os.path.basename(DATA_DIR.rstrip("/"))
 
 _cache: Optional[dict] = None
 

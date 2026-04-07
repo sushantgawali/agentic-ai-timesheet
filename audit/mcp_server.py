@@ -19,7 +19,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from audit.checks import run_all
-from audit.loader import load_all
+from audit.loader import load_all, DATA_VERSION
 from audit.report import generate
 
 app = Server("audit-tools")
@@ -143,6 +143,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 hours_issues=_results["hours_issues"],
                 total_entries=_results["total_entries"],
                 key_takeaways=takeaways,
+                data_version=DATA_VERSION,
             )
             return ok({"status": "written", "path": path})
 

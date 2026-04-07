@@ -19,7 +19,7 @@ import sys
 import anthropic
 
 from audit.checks import run_all
-from audit.loader import load_all
+from audit.loader import load_all, DATA_VERSION
 from audit.report import generate
 
 # ---------------------------------------------------------------------------
@@ -110,6 +110,7 @@ def execute_tool(name: str, inputs: dict) -> str:
             issues=_audit_results["issues"],
             hours_issues=_audit_results["hours_issues"],
             total_entries=_audit_results["total_entries"],
+            data_version=DATA_VERSION,
         )
         return json.dumps({"status": "written", "path": path})
 
