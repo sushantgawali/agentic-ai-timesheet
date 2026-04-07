@@ -159,7 +159,7 @@ def run_all() -> tuple[list[dict], list[dict]]:
         # CHECK-10: Deactivated employee
         if emp_status.get(user, "") == "deactivated":
             issues.append(_issue(
-                "CHECK-10", "WARNING", user, date,
+                "CHECK-10", "CRITICAL", user, date,
                 f"Deactivated employee billing — project={project}",
                 f"Row {i}: {user} | {date} | project={project}",
             ))

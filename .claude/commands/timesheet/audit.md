@@ -137,7 +137,7 @@ for i, row in enumerate(ts, start=2):
 
     # CHECK-10: Deactivated employee
     if emp_status.get(user,'') == 'deactivated':
-        add(user, date, 'CHECK-10', 'WARNING',
+        add(user, date, 'CHECK-10', 'CRITICAL',
             f"Deactivated employee billing — project={project}",
             f"  Row {i}: {user} | {date} | project={project}")
 
@@ -225,8 +225,8 @@ for (user, date) in sorted(active_days):
             f"  {user} | {date} | {signal_str}")
 
 # --- Print Report ---
-critical_checks = ['CHECK-1','CHECK-2','CHECK-3','CHECK-4','CHECK-5']
-warning_checks  = ['CHECK-6','CHECK-7','CHECK-8','CHECK-9','CHECK-10','CHECK-12']
+critical_checks = ['CHECK-1','CHECK-2','CHECK-3','CHECK-4','CHECK-5','CHECK-10']
+warning_checks  = ['CHECK-6','CHECK-7','CHECK-8','CHECK-9','CHECK-12']
 info_checks     = ['CHECK-11','CHECK-13']
 
 labels = {
