@@ -16,7 +16,10 @@ SLACK_ACTIVE_THRESHOLD = 3
 
 
 def load_csv(fname: str) -> list[dict]:
-    with open(os.path.join(DATA_DIR, fname)) as f:
+    path = os.path.join(DATA_DIR, fname)
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
         return list(csv.DictReader(f))
 
 
