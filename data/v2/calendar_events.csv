@@ -1,0 +1,6 @@
+user,date,time,duration_min,title,status
+himanshi,2026-03-10,16:00,30,Sprint Review,declined
+sushant,2026-03-11,11:00,30,Standup,accepted
+saroj,2026-03-09,16:00,30,Design Sync,accepted
+saroj,2026-03-10,9:00,30,Design Sync,accepted
+saroj,2026-03-11,9:00,60,Client Call,accepted

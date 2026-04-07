@@ -1,0 +1,5 @@
+username,role,rate,status,timezone,contract_hrs
+himanshi,developer,75,active,Asia/Kolkata,8
+sushant,developer,80,active,Asia/Kolkata,8
+saroj,developer,70,active,Asia/Kolkata,8
+imran,developer,85,deactivated,Asia/Kolkata,8

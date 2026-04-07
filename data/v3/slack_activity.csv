@@ -1,13 +1,126 @@
-user,date,messages,reactions,first_seen,last_seen
-himanshi,2026-03-09,14,0,11:48,16:09
-himanshi,2026-03-10,12,2,8:37,18:31
-himanshi,2026-03-11,8,1,11:18,19:03
-sushant,2026-03-09,6,2,11:42,17:46
-sushant,2026-03-10,15,5,10:23,17:38
-sushant,2026-03-11,8,0,8:41,
-saroj,2026-03-09,13,3,8:15,17:34
-saroj,2026-03-10,11,2,9:48,17:35
-saroj,2026-03-11,4,3,10:05,16:10
-imran,2026-03-09,11,4,11:34,19:38
-imran,2026-03-10,2,0,10:16,16:12
-imran,2026-03-11,14,4,8:59,17:07
+user,date,ts,text,thread_ts,reply_count,reaction_name,reaction_count
+himanshi,2026-03-09,1773056460.767642,,,0,,0
+himanshi,2026-03-09,1773038580.215480,"Taking a short break, back in 30",,0,rocket,1
+himanshi,2026-03-09,1773046260.386286,EOD update: completed code review tasks,,0,pray,2
+himanshi,2026-03-09,1773060540.105314,"The build is passing now, was a flaky test",,0,,0
+himanshi,2026-03-09,1773039840.652997,Need access to the prod database for debugging,1773039840.652997,2,,0
+himanshi,2026-03-09,1773042900.122469,Sprint retro notes are in Confluence,1773042900.122469,1,,0
+himanshi,2026-03-10,1773121320.873351,EOD update: completed code review tasks,,0,,0
+himanshi,2026-03-10,1773121020.703866,"The build is passing now, was a flaky test",,0,eyes,2
+himanshi,2026-03-10,1773136440.471251,Quick question about the auth flow,,0,fire,3
+himanshi,2026-03-10,1773120120.741252,Pair programming session at 3pm anyone?,,0,thumbsup,1
+himanshi,2026-03-10,1773134100.515132,Heads up — CI pipeline is broken on main,,0,,0
+himanshi,2026-03-10,1773122160.157753,PR is up for review: Entain Platform,1773122160.157753,5,,0
+himanshi,2026-03-10,1773141900.523209,Can we sync on the Entain Platform timeline?,1773141900.523209,4,,0
+himanshi,2026-03-10,1773136740.972273,Anyone seen this error before? Getting a 502 on staging,,0,,0
+himanshi,2026-03-10,1773126660.581513,Checking in — how's the Entain Platform progress?,,0,,0
+himanshi,2026-03-10,1773146460.611988,Quick question about the auth flow,,0,,0
+himanshi,2026-03-11,1773224580.111585,"Refactored the middleware layer, much cleaner now",,0,,0
+himanshi,2026-03-11,1773213780.762789,Sent the invoice to the client,1773213780.762789,3,,0
+himanshi,2026-03-11,1773209160.963276,Fixed the CORS issue on the API gateway,,0,,0
+himanshi,2026-03-11,1773202740.642270,"Updated the test suite, all green now",,0,,0
+himanshi,2026-03-11,1773220500.786847,Sprint retro notes are in Confluence,,0,,0
+himanshi,2026-03-11,1773211320.409738,,,0,,0
+himanshi,2026-03-11,1773203280.700551,,1773203280.700551,2,,0
+himanshi,2026-03-11,1773212880.331269,PR is up for review: Entain Platform,,0,,0
+himanshi,2026-03-11,1773211140.576459,Running into a weird bug with the date parser,1773211140.576459,2,,0
+himanshi,2026-03-11,1773198420.458515,"Reviewed the PR, left a few comments",,0,,0
+himanshi,2026-03-11,1773199500.663728,"Working from home today, reachable on Slack",,0,,0
+himanshi,2026-03-11,1773209220.938232,Sprint retro notes are in Confluence,,0,,0
+himanshi,2026-03-11,1773203220.710491,Design mockups are ready for review,1773203220.710491,2,,0
+himanshi,2026-03-11,1773225840.777100,Running into a weird bug with the date parser,,0,,0
+himanshi,2026-03-11,1773217740.997677,Running into a weird bug with the date parser,,0,,0
+himanshi,2026-03-11,1773220140.488493,Fixed the CORS issue on the API gateway,,0,,0
+sushant,2026-03-09,1773043200.722586,Anyone seen this error before? Getting a 502 on staging,,0,,0
+sushant,2026-03-09,1773051420.229407,"Working from home today, reachable on Slack",,0,,0
+sushant,2026-03-09,1773042300.458469,Need access to the prod database for debugging,,0,raised_hands,4
+sushant,2026-03-09,1773031380.803658,"Updated the test suite, all green now",,0,,0
+sushant,2026-03-09,1773042840.979961,Running into a weird bug with the date parser,,0,,0
+sushant,2026-03-09,1773042360.949876,Standup update: working on meeting today,,0,,0
+sushant,2026-03-09,1773052020.583418,Deployed Ballys Portal to production,,0,,0
+sushant,2026-03-09,1773032760.535699,"Refactored the middleware layer, much cleaner now",1773032760.535699,2,,0
+sushant,2026-03-09,1773030000.779126,Quick question about the auth flow,,0,,0
+sushant,2026-03-09,1773029580.226962,"Blocked on the API response format, need input",,0,,0
+sushant,2026-03-09,1773032160.399822,EOD update: completed code review tasks,,0,,0
+sushant,2026-03-09,1773047160.318144,"Refactored the middleware layer, much cleaner now",,0,thumbsup,1
+sushant,2026-03-09,1773055020.738237,"Pushed the fix to staging, can someone verify?",,0,,0
+sushant,2026-03-09,1773056880.771483,EOD update: completed development tasks,1773056880.771483,5,,0
+sushant,2026-03-09,1773056040.668663,"Finished the migration script, testing locally",1773056040.668663,2,,0
+sushant,2026-03-09,1773043920.236927,Heads up — CI pipeline is broken on main,,0,,0
+sushant,2026-03-09,1773028620.770449,Standup update: working on testing today,1773028620.770449,1,,0
+sushant,2026-03-09,1773040020.997573,"Taking a short break, back in 30",1773040020.997573,5,100,1
+sushant,2026-03-09,1773041220.797913,Heads up — CI pipeline is broken on main,1773041220.797913,4,,0
+sushant,2026-03-09,1773047220.484462,"Backlog grooming at 2pm, please join",,0,,0
+sushant,2026-03-09,1773039900.487239,Pair programming session at 3pm anyone?,,0,,0
+sushant,2026-03-09,1773054240.470629,PR is up for review: Ballys Portal,,0,thumbsup,2
+sushant,2026-03-09,1773029280.601592,Need access to the prod database for debugging,1773029280.601592,4,,0
+sushant,2026-03-09,1773056340.538431,"Client demo went well, few follow-ups noted",1773056340.538431,2,100,4
+sushant,2026-03-09,1773035880.212384,"Backlog grooming at 2pm, please join",1773035880.212384,2,thumbsup,3
+sushant,2026-03-10,1773126720.955957,Anyone seen this error before? Getting a 502 on staging,,0,,0
+sushant,2026-03-10,1773134580.602194,EOD update: completed code review tasks,1773134580.602194,1,,0
+sushant,2026-03-10,1773111360.361953,Sprint retro notes are in Confluence,,0,,0
+sushant,2026-03-10,1773115860.283812,Anyone seen this error before? Getting a 502 on staging,1773115860.283812,2,fire,1
+sushant,2026-03-10,1773138180.265712,Standup update: working on documentation today,1773138180.265712,5,,0
+sushant,2026-03-10,1773133500.485634,Let's sync on the deployment pipeline,1773133500.485634,3,,0
+sushant,2026-03-10,1773116760.667218,Deployed Ballys Portal to production,,0,,0
+sushant,2026-03-10,1773113940.232649,Standup update: working on code review today,1773113940.232649,4,,0
+sushant,2026-03-10,1773118380.162604,Updated the README with setup instructions,,0,,0
+sushant,2026-03-10,1773137100.200173,,,0,,0
+sushant,2026-03-10,1773118680.769877,Deployed Ballys Portal to production,,0,,0
+sushant,2026-03-10,1773132240.148818,Sprint retro notes are in Confluence,,0,,0
+sushant,2026-03-11,1773204720.609792,Quick question about the auth flow,1773204720.609792,5,eyes,1
+sushant,2026-03-11,1773222060.465546,Fixed the CORS issue on the API gateway,,0,100,2
+sushant,2026-03-11,1773206820.466112,Can we sync on the Ballys Portal timeline?,1773206820.466112,5,,0
+sushant,2026-03-11,1773201060.556883,Sprint retro notes are in Confluence,1773201060.556883,3,,0
+sushant,2026-03-11,1773214980.544275,"Client demo went well, few follow-ups noted",,0,pray,4
+sushant,2026-03-11,1773199860.229933,Fixed the CORS issue on the API gateway,1773199860.229933,1,rocket,4
+saroj,2026-03-09,1773049740.581983,,,0,,0
+saroj,2026-03-09,1773044520.719700,,,0,,0
+saroj,2026-03-09,1773038340.625492,Anyone seen this error before? Getting a 502 on staging,,0,,0
+saroj,2026-03-09,1773053820.693809,"Refactored the middleware layer, much cleaner now",,0,,0
+saroj,2026-03-09,1773046980.120795,"The build is passing now, was a flaky test",1773046980.120795,1,fire,4
+saroj,2026-03-09,1773057300.114381,EOD update: completed documentation tasks,1773057300.114381,1,,0
+saroj,2026-03-09,1773056340.459804,Sent the invoice to the client,,0,,0
+saroj,2026-03-09,1773044640.194223,Heads up — CI pipeline is broken on main,,0,,0
+saroj,2026-03-09,1773049380.499487,Can we sync on the Smarsh Analytics timeline?,,0,,0
+saroj,2026-03-10,1773139380.438291,Sprint retro notes are in Confluence,1773139380.438291,5,,0
+saroj,2026-03-10,1773125400.294433,,,0,,0
+saroj,2026-03-10,1773126960.241954,Anyone seen this error before? Getting a 502 on staging,,0,,0
+saroj,2026-03-10,1773140520.334813,"Finished the migration script, testing locally",,0,rocket,2
+saroj,2026-03-10,1773122340.255476,"Finished the migration script, testing locally",,0,,0
+saroj,2026-03-10,1773135720.923287,Updated the README with setup instructions,,0,,0
+saroj,2026-03-10,1773138780.205474,"Blocked on the API response format, need input",1773138780.205474,3,,0
+saroj,2026-03-11,1773201720.403517,Quick question about the auth flow,1773201720.403517,4,100,2
+saroj,2026-03-11,1773220440.175249,"Reviewed the PR, left a few comments",,0,,0
+saroj,2026-03-11,1773224280.495976,,,0,,0
+saroj,2026-03-11,1773221880.244469,Sent the invoice to the client,,0,,0
+saroj,2026-03-11,1773199980.323298,Sent the invoice to the client,,0,raised_hands,4
+saroj,2026-03-11,1773199980.263502,"The build is passing now, was a flaky test",,0,,0
+imran,2026-03-09,1773054660.519253,"Updated the test suite, all green now",,0,,0
+imran,2026-03-09,1773041160.239579,,,0,,0
+imran,2026-03-09,1773052020.539187,"Reviewed the PR, left a few comments",,0,,0
+imran,2026-03-09,1773036120.630818,"Refactored the middleware layer, much cleaner now",1773036120.630818,4,,0
+imran,2026-03-09,1773041760.660695,"Client demo went well, few follow-ups noted",1773041760.660695,5,thumbsup,1
+imran,2026-03-09,1773031200.343592,Need access to the prod database for debugging,1773031200.343592,2,,0
+imran,2026-03-09,1773045840.341911,"Working from home today, reachable on Slack",,0,100,3
+imran,2026-03-09,1773044220.404550,"Client demo went well, few follow-ups noted",1773044220.404550,3,,0
+imran,2026-03-09,1773045000.708499,,1773045000.708499,1,,0
+imran,2026-03-09,1773033600.641734,Running into a weird bug with the date parser,,0,,0
+imran,2026-03-09,1773039660.241567,Merged the feature branch into develop,1773039660.241567,5,,0
+imran,2026-03-09,1773028920.859190,"Blocked on the API response format, need input",1773028920.859190,3,,0
+imran,2026-03-10,1773139800.125740,"Reviewed the PR, left a few comments",,0,,0
+imran,2026-03-10,1773141240.996549,EOD update: completed design tasks,,0,,0
+imran,2026-03-10,1773118140.109566,PR is up for review: Entain Platform,,0,100,1
+imran,2026-03-10,1773130620.725553,"Finished the migration script, testing locally",,0,,0
+imran,2026-03-10,1773136440.800705,Standup update: working on development today,,0,,0
+imran,2026-03-10,1773136500.959171,Let's sync on the deployment pipeline,1773136500.959171,4,,0
+imran,2026-03-10,1773123480.406101,Checking in — how's the Entain Platform progress?,,0,,0
+imran,2026-03-10,1773120960.369422,"Finished the migration script, testing locally",1773120960.369422,3,,0
+imran,2026-03-10,1773127800.736630,Let's sync on the deployment pipeline,1773127800.736630,4,pray,3
+imran,2026-03-10,1773118800.544374,Design mockups are ready for review,,0,,0
+imran,2026-03-10,1773134700.272529,"Refactored the middleware layer, much cleaner now",,0,,0
+imran,2026-03-10,1773122280.535466,Fixed the CORS issue on the API gateway,1773122280.535466,1,,0
+imran,2026-03-10,1773138000.213444,"Blocked on the API response format, need input",,0,,0
+imran,2026-03-11,1773215820.493276,Let's sync on the deployment pipeline,,0,fire,1
+imran,2026-03-11,1773208080.834445,,,0,eyes,2
+imran,2026-03-11,1773202020.909854,,,0,,0
