@@ -2,6 +2,16 @@ name: Timesheet Audit
 
 on:
   workflow_dispatch:        # manual trigger only — run from the Actions tab
+    inputs:
+      model:
+        description: "Claude model to use"
+        default: "claude-haiku-4-5-20251001"
+        required: false
+        type: choice
+        options:
+          - claude-haiku-4-5-20251001
+          - claude-sonnet-4-6
+          - claude-opus-4-6
 
 jobs:
   audit:
@@ -37,6 +47,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DATA_DIR: data
           OUT_DIR: output
+          MODEL: ${{ inputs.model || 'claude-haiku-4-5-20251001' }}
         run: python3 audit_agent_sdk.py
 
       - name: Run audit agent (fallback — direct API)
@@ -45,6 +56,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DATA_DIR: data
           OUT_DIR: output
+          MODEL: ${{ inputs.model || 'claude-haiku-4-5-20251001' }}
         run: python3 audit_agent.py
 
       - name: Restore previous reports from gh-pages

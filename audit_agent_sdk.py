@@ -11,7 +11,7 @@ Requires:
     npm install -g @anthropic-ai/claude-code   (Claude Code CLI)
 
 Required env var: ANTHROPIC_API_KEY
-Optional env vars: DATA_DIR (default: data), OUT_DIR (default: output)
+Optional env vars: DATA_DIR (default: data), OUT_DIR (default: output), MODEL (default: claude-haiku-4-5-20251001)
 """
 import os
 import sys
@@ -33,8 +33,10 @@ from claude_agent_sdk import (
 
 async def main() -> None:
     server_script = str(Path(__file__).parent / "audit" / "mcp_server.py")
+    model = os.environ.get("MODEL", "claude-haiku-4-5-20251001")
 
     options = ClaudeAgentOptions(
+        model=model,
         mcp_servers={
             "audit": {
                 "type": "stdio",
@@ -51,7 +53,7 @@ async def main() -> None:
         max_turns=10,
     )
 
-    print("[audit-agent-sdk] Starting...", flush=True)
+    print(f"[audit-agent-sdk] Starting with model={model}", flush=True)
 
     async for message in query(
         prompt=(
