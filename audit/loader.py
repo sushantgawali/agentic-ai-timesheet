@@ -29,12 +29,14 @@ def load_all() -> dict:
     if _cache is not None:
         return _cache
 
-    ts        = load_csv("kimai_timesheets.csv")
-    employees = load_csv("hr_employees.csv")
-    assigns   = load_csv("hr_assignments.csv")
-    leaves    = load_csv("hr_leave.csv")
-    projects  = load_csv("pm_projects.csv")
-    slack     = load_csv("slack_activity.csv")
+    ts          = load_csv("kimai_timesheets.csv")
+    employees   = load_csv("hr_employees.csv")
+    assigns     = load_csv("hr_assignments.csv")
+    leaves      = load_csv("hr_leave.csv")
+    projects    = load_csv("pm_projects.csv")
+    slack       = load_csv("slack_activity.csv")
+    git_commits = load_csv("git_commits.csv")
+    calendar    = load_csv("calendar_events.csv")
 
     emp_rate   = {e["username"]: e.get("rate", "").strip() for e in employees}
     emp_status = {e["username"]: e.get("status", "").strip() for e in employees}
@@ -53,19 +55,16 @@ def load_all() -> dict:
         pname = p.get("project_name") or p.get("name", "")
         proj_status[pname] = p.get("status", "").strip()
 
-    # slack_activity.csv: each row is one message — count rows per (user, date)
-    slack_msg_count: dict[tuple, int] = defaultdict(int)
-    for s in slack:
-        user = s.get("user", "").strip()
-        date = s.get("date", "").strip()
-        if user and date:
-            slack_msg_count[(user, date)] += 1
-
-    # Only mark (user, date) as active if they sent >= SLACK_ACTIVE_THRESHOLD messages
+    # slack_activity.csv: pre-aggregated — one row per (user, date) with messages count
     slack_active: dict[tuple, int] = {
-        key: count
-        for key, count in slack_msg_count.items()
-        if count >= SLACK_ACTIVE_THRESHOLD
+        (s["user"].strip(), s["date"].strip()): int(s.get("messages", 0))
+        for s in slack
+        if int(s.get("messages", 0)) >= SLACK_ACTIVE_THRESHOLD
+    }
+
+    # git_commits.csv: (user, date) pairs with any commits
+    git_active: set[tuple] = {
+        (g["user"].strip(), g["date"].strip()) for g in git_commits
     }
 
     _cache = {
@@ -76,5 +75,7 @@ def load_all() -> dict:
         "approved_leave": approved_leave,
         "proj_status":    proj_status,
         "slack_active":   slack_active,
+        "git_active":     git_active,
+        "calendar":       calendar,
     }
     return _cache

@@ -19,12 +19,13 @@ def load(fname):
     with open(os.path.join(DATA_DIR, fname)) as f:
         return list(csv.DictReader(f))
 
-ts        = load("kimai_timesheets.csv")
-employees = load("hr_employees.csv")
-assigns   = load("hr_assignments.csv")
-leaves    = load("hr_leave.csv")
-projects  = load("pm_projects.csv")
-slack     = load("slack_activity.csv")
+ts          = load("kimai_timesheets.csv")
+employees   = load("hr_employees.csv")
+assigns     = load("hr_assignments.csv")
+leaves      = load("hr_leave.csv")
+projects    = load("pm_projects.csv")
+slack       = load("slack_activity.csv")
+git_commits = load("git_commits.csv")
 
 # Build lookup dicts
 emp_rate   = {e['username']: e.get('rate','').strip() for e in employees}
@@ -44,13 +45,14 @@ for p in projects:
     pname = p.get('project_name') or p.get('name', '')
     proj_status[pname] = p.get('status', '').strip()
 
-slack_msg_count = defaultdict(int)
-for s in slack:
-    user = s.get('user', '').strip()
-    date = s.get('date', '').strip()
-    if user and date:
-        slack_msg_count[(user, date)] += 1
-slack_active = {k: v for k, v in slack_msg_count.items() if v >= 3}
+# slack_activity.csv: pre-aggregated — one row per (user, date) with messages count
+slack_active = {
+    (s['user'].strip(), s['date'].strip()): int(s.get('messages', 0))
+    for s in slack if int(s.get('messages', 0)) >= 3
+}
+
+# git_commits.csv: (user, date) pairs with any commits
+git_active = {(g['user'].strip(), g['date'].strip()) for g in git_commits}
 
 # all_issues = [(severity_order, user, date, check, severity_label, brief, full_detail)]
 all_issues = []
@@ -207,14 +209,20 @@ for (user, date), entries in by_user_date.items():
                 detail = f"  Rows {ri}&{si}: {user} | {date} | overlap={overlap_min}min | row{ri}=[{rb.strftime('%H:%M')}-{re.strftime('%H:%M')} {rp}] row{si}=[{sb.strftime('%H:%M')}-{se.strftime('%H:%M')} {sp}]"
                 add(user, date, 'CHECK-2', 'CRITICAL', brief, detail)
 
-# CHECK-12: Active on Slack but no timesheet
+# CHECK-12: Active on Slack or Git but no timesheet
 ts_days = set((r['user'], r['date']) for r in ts)
-for (user, date) in sorted(slack_active.keys()):
+active_days = set(slack_active.keys()) | git_active
+for (user, date) in sorted(active_days):
     if (user, date) not in ts_days and (user, date) not in approved_leave:
-        msgs = slack_active[(user, date)]
+        signals = []
+        if (user, date) in slack_active:
+            signals.append(f"{slack_active[(user, date)]} Slack msgs")
+        if (user, date) in git_active:
+            signals.append("git commits")
+        signal_str = ', '.join(signals)
         add(user, date, 'CHECK-12', 'WARNING',
-            f"Active on Slack but no timesheet — {msgs} messages",
-            f"  {user} | {date} | slack_messages={msgs}")
+            f"Active ({signal_str}) but no timesheet",
+            f"  {user} | {date} | {signal_str}")
 
 # --- Print Report ---
 critical_checks = ['CHECK-1','CHECK-2','CHECK-3','CHECK-4','CHECK-5']
