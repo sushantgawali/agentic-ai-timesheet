@@ -31,11 +31,21 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run audit agent (Agent SDK)
+        id: sdk_run
+        continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           DATA_DIR: data
           OUT_DIR: output
         run: python3 audit_agent_sdk.py
+
+      - name: Run audit agent (fallback — direct API)
+        if: steps.sdk_run.outcome == 'failure'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATA_DIR: data
+          OUT_DIR: output
+        run: python3 audit_agent.py
 
       - name: Restore previous reports from gh-pages
         run: |
