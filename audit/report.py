@@ -1,8 +1,16 @@
 """
 Generate the HTML audit report from issues + hours_issues.
+
+New sections (v2):
+  #1 Per-employee summary table   — all employees ranked by issue count
+  #2 Per-project summary table    — all projects ranked by issue count
+  #3 Interactive filtering        — severity / check / user / project filters on the main table
+  #7 Check distribution chart     — CSS horizontal bars, one per check type
+  #9 Top-10 leaderboard           — most-flagged employees & projects at a glance
 """
 import html
 import os
+from collections import defaultdict, Counter
 from datetime import date as date_cls
 
 OUT_DIR = os.environ.get("OUT_DIR", "output")
@@ -15,6 +23,15 @@ SEV_BADGE = {
     "INFO":     "background:#2563eb;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:700",
 }
 
+# Canonical severity for each check (used for chart bar colours)
+CHECK_SEVERITY = {
+    "CHECK-1": "CRITICAL", "CHECK-2": "CRITICAL", "CHECK-3": "CRITICAL",
+    "CHECK-4": "CRITICAL", "CHECK-5": "CRITICAL", "CHECK-10": "CRITICAL",
+    "CHECK-6": "WARNING",  "CHECK-7": "WARNING",  "CHECK-8": "WARNING",
+    "CHECK-9": "WARNING",  "CHECK-12": "WARNING", "CHECK-14": "WARNING",
+    "CHECK-11": "INFO",    "CHECK-13": "INFO",
+}
+
 
 def esc(s: object) -> str:
     return html.escape(str(s))
@@ -23,6 +40,291 @@ def esc(s: object) -> str:
 def badge(sev: str) -> str:
     return f'<span style="{SEV_BADGE[sev]}">{sev}</span>'
 
+
+# ---------------------------------------------------------------------------
+# Derived stats
+# ---------------------------------------------------------------------------
+
+def _compute_user_stats(issues: list[dict]) -> dict:
+    """Per-user issue counts by severity (excludes CHECK-13 — shown separately)."""
+    stats: dict = defaultdict(lambda: {"CRITICAL": 0, "WARNING": 0, "INFO": 0, "total": 0})
+    for issue in issues:
+        if issue["check"] == "CHECK-13":
+            continue
+        u = issue["user"]
+        stats[u][issue["severity"]] += 1
+        stats[u]["total"] += 1
+    return stats
+
+
+def _compute_project_stats(issues: list[dict]) -> dict:
+    """Per-project issue counts by severity (excludes CHECK-13 and issues with no project)."""
+    stats: dict = defaultdict(lambda: {"CRITICAL": 0, "WARNING": 0, "INFO": 0, "total": 0})
+    for issue in issues:
+        if issue["check"] == "CHECK-13":
+            continue
+        p = issue.get("project", "").strip()
+        if not p:
+            continue
+        stats[p][issue["severity"]] += 1
+        stats[p]["total"] += 1
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# Feature #7 — Check distribution chart (CSS bars)
+# ---------------------------------------------------------------------------
+
+def _check_distribution_chart(issues: list[dict]) -> str:
+    from audit.checks import LABELS
+    counts = Counter(i["check"] for i in issues)
+    if not counts:
+        return ""
+
+    items = sorted(counts.items(), key=lambda x: -x[1])
+    max_count = max(counts.values())
+
+    rows = []
+    for check, count in items:
+        sev   = CHECK_SEVERITY.get(check, "INFO")
+        color = SEV_COLOR[sev]
+        pct   = max(1, round(count / max_count * 100))
+        label = LABELS.get(check, check)
+        note  = " · shown in Detailed Findings" if check == "CHECK-13" else ""
+        rows.append(f"""
+  <div style="display:flex;align-items:center;gap:10px;margin:5px 0">
+    <span style="font-family:monospace;font-size:0.75rem;color:#6b7280;width:76px;text-align:right;flex-shrink:0">{esc(check)}</span>
+    <div style="flex:1;background:#f3f4f6;border-radius:4px;height:18px;min-width:0">
+      <div style="width:{pct}%;height:100%;background:{color};border-radius:4px;opacity:0.82;min-width:4px"></div>
+    </div>
+    <span style="font-size:0.8rem;font-weight:700;color:#111827;width:46px;text-align:right;flex-shrink:0">{count:,}</span>
+    <span style="font-size:0.75rem;color:#6b7280;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{esc(label)}{esc(note)}</span>
+  </div>""")
+
+    return f"""
+<div class="card">
+  <h2 style="margin:0 0 14px;font-size:1rem;font-weight:700">Issues by Check Type</h2>
+  <div style="max-width:900px">{''.join(rows)}
+  </div>
+</div>"""
+
+
+# ---------------------------------------------------------------------------
+# Feature #9 — Top-10 leaderboard
+# ---------------------------------------------------------------------------
+
+def _leaderboard_rows(stats: dict, limit: int = 10) -> str:
+    ranked = sorted(stats.items(), key=lambda x: (-x[1]["total"], -x[1]["CRITICAL"]))[:limit]
+    if not ranked:
+        return '<p style="color:#6b7280;font-style:italic;font-size:0.85rem">No data.</p>'
+
+    rows = []
+    for rank, (name, s) in enumerate(ranked, 1):
+        crit_style = "color:#dc2626;font-weight:700" if s["CRITICAL"] else "color:#9ca3af"
+        rows.append(f"""
+    <tr>
+      <td style="padding:6px 8px;color:#9ca3af;font-size:0.8rem;text-align:center">{rank}</td>
+      <td style="padding:6px 8px;font-weight:600;font-size:0.85rem">{esc(name)}</td>
+      <td style="padding:6px 8px;text-align:right;{crit_style};font-size:0.85rem">{s['CRITICAL']}</td>
+      <td style="padding:6px 8px;text-align:right;color:#d97706;font-size:0.85rem">{s['WARNING']}</td>
+      <td style="padding:6px 8px;text-align:right;color:#2563eb;font-size:0.85rem">{s['INFO']}</td>
+      <td style="padding:6px 8px;text-align:right;font-weight:700;font-size:0.85rem">{s['total']}</td>
+    </tr>""")
+
+    th = "padding:6px 8px;font-size:0.7rem;text-transform:uppercase;letter-spacing:.04em;color:#9ca3af;border-bottom:2px solid #f3f4f6"
+    return f"""
+  <table style="width:100%;border-collapse:collapse">
+    <thead><tr>
+      <th style="{th}">#</th>
+      <th style="{th}">Name</th>
+      <th style="{th};text-align:right">Crit</th>
+      <th style="{th};text-align:right">Warn</th>
+      <th style="{th};text-align:right">Info</th>
+      <th style="{th};text-align:right">Total</th>
+    </tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table>"""
+
+
+def _top10_leaderboard(user_stats: dict, project_stats: dict) -> str:
+    emp_rows  = _leaderboard_rows(user_stats)
+    proj_rows = _leaderboard_rows(project_stats)
+    return f"""
+<div class="card">
+  <h2 style="margin:0 0 16px;font-size:1rem;font-weight:700">Top 10 Most-Flagged</h2>
+  <div style="display:flex;gap:24px;flex-wrap:wrap">
+    <div style="flex:1;min-width:280px">
+      <h3 style="margin:0 0 10px;font-size:0.85rem;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:.04em">Employees</h3>
+      {emp_rows}
+    </div>
+    <div style="flex:1;min-width:280px">
+      <h3 style="margin:0 0 10px;font-size:0.85rem;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:.04em">Projects</h3>
+      {proj_rows}
+    </div>
+  </div>
+</div>"""
+
+
+# ---------------------------------------------------------------------------
+# Feature #1 — Per-employee summary table
+# ---------------------------------------------------------------------------
+
+def _employee_summary_table(user_stats: dict) -> str:
+    ranked = sorted(user_stats.items(), key=lambda x: (-x[1]["total"], -x[1]["CRITICAL"]))
+    if not ranked:
+        return ""
+
+    th = "padding:8px 12px;font-size:0.7rem;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;border-bottom:2px solid #e5e7eb"
+    rows = []
+    for rank, (user, s) in enumerate(ranked, 1):
+        bg         = "#fef2f2" if s["CRITICAL"] > 0 else "#fff"
+        crit_style = "color:#dc2626;font-weight:700" if s["CRITICAL"] else "color:#9ca3af"
+        rows.append(
+            f'<tr style="background:{bg}">'
+            f'<td style="padding:6px 12px;color:#9ca3af;font-size:0.8rem;text-align:center">{rank}</td>'
+            f'<td style="padding:6px 12px;font-weight:600">{esc(user)}</td>'
+            f'<td style="padding:6px 12px;text-align:right;{crit_style}">{s["CRITICAL"]}</td>'
+            f'<td style="padding:6px 12px;text-align:right;color:#d97706">{s["WARNING"]}</td>'
+            f'<td style="padding:6px 12px;text-align:right;color:#2563eb">{s["INFO"]}</td>'
+            f'<td style="padding:6px 12px;text-align:right;font-weight:700">{s["total"]}</td>'
+            f'</tr>'
+        )
+
+    return f"""
+<div class="card">
+  <h2 style="margin:0 0 16px;font-size:1rem;font-weight:700">Per-Employee Summary
+    <span style="font-weight:400;color:#6b7280;font-size:0.8rem;margin-left:8px">{len(ranked)} employees with issues &nbsp;·&nbsp; excludes CHECK-13 (hours accuracy)</span>
+  </h2>
+  <div style="overflow-x:auto">
+  <table>
+    <thead><tr>
+      <th style="{th}">#</th>
+      <th style="{th}">Employee</th>
+      <th style="{th};text-align:right">Critical</th>
+      <th style="{th};text-align:right">Warning</th>
+      <th style="{th};text-align:right">Info</th>
+      <th style="{th};text-align:right">Total</th>
+    </tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table>
+  </div>
+</div>"""
+
+
+# ---------------------------------------------------------------------------
+# Feature #2 — Per-project summary table
+# ---------------------------------------------------------------------------
+
+def _project_summary_table(project_stats: dict) -> str:
+    ranked = sorted(project_stats.items(), key=lambda x: (-x[1]["total"], -x[1]["CRITICAL"]))
+    if not ranked:
+        return ""
+
+    th = "padding:8px 12px;font-size:0.7rem;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;border-bottom:2px solid #e5e7eb"
+    rows = []
+    for rank, (proj, s) in enumerate(ranked, 1):
+        bg         = "#fef2f2" if s["CRITICAL"] > 0 else "#fff"
+        crit_style = "color:#dc2626;font-weight:700" if s["CRITICAL"] else "color:#9ca3af"
+        rows.append(
+            f'<tr style="background:{bg}">'
+            f'<td style="padding:6px 12px;color:#9ca3af;font-size:0.8rem;text-align:center">{rank}</td>'
+            f'<td style="padding:6px 12px;font-weight:600">{esc(proj)}</td>'
+            f'<td style="padding:6px 12px;text-align:right;{crit_style}">{s["CRITICAL"]}</td>'
+            f'<td style="padding:6px 12px;text-align:right;color:#d97706">{s["WARNING"]}</td>'
+            f'<td style="padding:6px 12px;text-align:right;color:#2563eb">{s["INFO"]}</td>'
+            f'<td style="padding:6px 12px;text-align:right;font-weight:700">{s["total"]}</td>'
+            f'</tr>'
+        )
+
+    return f"""
+<div class="card">
+  <h2 style="margin:0 0 16px;font-size:1rem;font-weight:700">Per-Project Summary
+    <span style="font-weight:400;color:#6b7280;font-size:0.8rem;margin-left:8px">{len(ranked)} projects with issues &nbsp;·&nbsp; excludes CHECK-13 (hours accuracy)</span>
+  </h2>
+  <div style="overflow-x:auto">
+  <table>
+    <thead><tr>
+      <th style="{th}">#</th>
+      <th style="{th}">Project</th>
+      <th style="{th};text-align:right">Critical</th>
+      <th style="{th};text-align:right">Warning</th>
+      <th style="{th};text-align:right">Info</th>
+      <th style="{th};text-align:right">Total</th>
+    </tr></thead>
+    <tbody>{''.join(rows)}</tbody>
+  </table>
+  </div>
+</div>"""
+
+
+# ---------------------------------------------------------------------------
+# Feature #3 — Filter controls + JS
+# ---------------------------------------------------------------------------
+
+def _filter_controls(issues: list[dict]) -> str:
+    checks  = sorted({i["check"] for i in issues if i["check"] != "CHECK-13"})
+    chk_opts = "".join(f'<option value="{c}">{c}</option>' for c in checks)
+    sel = "padding:6px 10px;border:1px solid #e5e7eb;border-radius:6px;font-size:0.82rem;background:#fff;color:#374151"
+    inp = "padding:6px 10px;border:1px solid #e5e7eb;border-radius:6px;font-size:0.82rem;background:#fff;color:#374151;width:130px"
+    return f"""
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+    <select id="f-sev" style="{sel}">
+      <option value="">All severities</option>
+      <option value="CRITICAL">CRITICAL</option>
+      <option value="WARNING">WARNING</option>
+      <option value="INFO">INFO</option>
+    </select>
+    <select id="f-chk" style="{sel}">
+      <option value="">All checks</option>
+      {chk_opts}
+    </select>
+    <input id="f-usr"  type="text" placeholder="Filter by user…"    style="{inp}">
+    <input id="f-proj" type="text" placeholder="Filter by project…" style="{inp}">
+    <button id="f-clear" style="padding:6px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:0.82rem;background:#f9fafb;cursor:pointer">Clear</button>
+    <span style="margin-left:4px;font-size:0.82rem;color:#6b7280">Showing <b id="visible-count">—</b> issues</span>
+  </div>"""
+
+
+_FILTER_JS = """
+<script>
+(function(){
+  var rows = document.querySelectorAll('#issues-tbody tr');
+  function applyFilters(){
+    var sev  = document.getElementById('f-sev').value;
+    var chk  = document.getElementById('f-chk').value;
+    var usr  = document.getElementById('f-usr').value.toLowerCase().trim();
+    var proj = document.getElementById('f-proj').value.toLowerCase().trim();
+    var vis  = 0;
+    rows.forEach(function(tr){
+      var show = true;
+      if(sev  && tr.dataset.severity !== sev)              show = false;
+      if(chk  && tr.dataset.check    !== chk)              show = false;
+      if(usr  && tr.dataset.user.indexOf(usr)    === -1)   show = false;
+      if(proj && tr.dataset.project.indexOf(proj)=== -1)   show = false;
+      tr.style.display = show ? '' : 'none';
+      if(show) vis++;
+    });
+    document.getElementById('visible-count').textContent = vis.toLocaleString();
+  }
+  ['f-sev','f-chk'].forEach(function(id){
+    document.getElementById(id).addEventListener('change', applyFilters);
+  });
+  ['f-usr','f-proj'].forEach(function(id){
+    document.getElementById(id).addEventListener('input', applyFilters);
+  });
+  document.getElementById('f-clear').addEventListener('click', function(){
+    ['f-sev','f-chk'].forEach(function(id){ document.getElementById(id).value=''; });
+    ['f-usr','f-proj'].forEach(function(id){ document.getElementById(id).value=''; });
+    applyFilters();
+  });
+  applyFilters();
+})();
+</script>"""
+
+
+# ---------------------------------------------------------------------------
+# Existing helpers (hours table, detail card, key takeaways)
+# ---------------------------------------------------------------------------
 
 def _hours_table(hours_issues: list[dict]) -> str:
     if not hours_issues:
@@ -111,12 +413,15 @@ def _key_takeaways_html(takeaways: list[str]) -> str:
 
 
 def _model_short(model: str) -> str:
-    """Return a short identifier for use in filenames and badges."""
     for key in ("haiku", "sonnet", "opus"):
         if key in model.lower():
             return key
-    return model.split("/")[-1]  # fallback
+    return model.split("/")[-1]
 
+
+# ---------------------------------------------------------------------------
+# Main generate function
+# ---------------------------------------------------------------------------
 
 def generate(
     issues: list[dict],
@@ -130,21 +435,42 @@ def generate(
     Write output/audit_{version}_{model_short}_YYYY-MM-DD.html and return the file path.
     """
     os.makedirs(OUT_DIR, exist_ok=True)
-    today = date_cls.today().isoformat()
+    today      = date_cls.today().isoformat()
     model_short = _model_short(model)
 
     n_crit = sum(1 for i in issues if i["severity"] == "CRITICAL")
     n_warn = sum(1 for i in issues if i["severity"] == "WARNING")
     n_info = sum(1 for i in issues if i["severity"] == "INFO")
 
-    # All-issues table rows (exclude CHECK-13)
+    # --- Derived stats for new sections ---
+    user_stats    = _compute_user_stats(issues)
+    project_stats = _compute_project_stats(issues)
+
+    # --- Feature #7: check distribution chart ---
+    chart_html = _check_distribution_chart(issues)
+
+    # --- Feature #9: top-10 leaderboard ---
+    leaderboard_html = _top10_leaderboard(user_stats, project_stats)
+
+    # --- Feature #1: per-employee table ---
+    employee_table_html = _employee_summary_table(user_stats)
+
+    # --- Feature #2: per-project table ---
+    project_table_html = _project_summary_table(project_stats)
+
+    # --- Feature #3: all-issues table with data-* attributes + filter controls ---
+    # Exclude CHECK-13 (shown in Detailed Findings with its own table)
+    filterable_issues = [i for i in issues if i["check"] != "CHECK-13"]
     rows_html = []
-    for issue in issues:
-        if issue["check"] == "CHECK-13":
-            continue
-        bg = SEV_BG[issue["severity"]]
+    for issue in filterable_issues:
+        bg      = SEV_BG[issue["severity"]]
+        proj_lc = issue.get("project", "").lower()
         rows_html.append(
-            f'<tr style="background:{bg}">'
+            f'<tr style="background:{bg}" '
+            f'data-severity="{esc(issue["severity"])}" '
+            f'data-check="{esc(issue["check"])}" '
+            f'data-user="{esc(issue["user"].lower())}" '
+            f'data-project="{esc(proj_lc)}">'
             f'<td style="padding:6px 12px;white-space:nowrap">{badge(issue["severity"])}</td>'
             f'<td style="padding:6px 12px;white-space:nowrap;font-weight:600">{esc(issue["label"])}</td>'
             f'<td style="padding:6px 12px;white-space:nowrap">{esc(issue["user"])}</td>'
@@ -153,13 +479,12 @@ def generate(
             f'</tr>'
         )
 
-    # Detailed findings section — weekend + hours accuracy only
+    filter_controls = _filter_controls(filterable_issues)
+
+    # --- Detailed findings section (CHECK-11 + CHECK-13) ---
     detail_checks = ["CHECK-11", "CHECK-13"]
     from audit.checks import LABELS
-    issues_by_check: dict[str, list] = {}
-    for c in detail_checks:
-        issues_by_check[c] = [i for i in issues if i["check"] == c]
-
+    issues_by_check: dict[str, list] = {c: [i for i in issues if i["check"] == c] for c in detail_checks}
     detail_items = "".join(
         _detail_card(c, LABELS[c], issues_by_check[c], hours_issues)
         for c in detail_checks
@@ -194,43 +519,54 @@ def generate(
 </style>
 </head>
 <body>
+
 <div class="card">
   <h1>Timesheet Audit Report</h1>
   <div style="display:flex;align-items:baseline;gap:16px;margin:6px 0 4px;flex-wrap:wrap">
     <span style="font-size:1.6rem;font-weight:800;color:#7c3aed">{data_version}</span>
     <span style="font-size:1.6rem;font-weight:800;color:#1e293b">{model_short}</span>
   </div>
-  <p class="subtitle">kimai_timesheets.csv &mdash; generated {today}</p>
+  <p class="subtitle">generated {today}</p>
   <div class="stat-grid">
     <div class="stat" style="background:#f0fdf4">
-      <div class="num" style="color:#16a34a">{total_entries}</div>
+      <div class="num" style="color:#16a34a">{total_entries:,}</div>
       <div class="lbl" style="color:#15803d">Entries Audited</div>
     </div>
     <div class="stat" style="background:#fef2f2">
-      <div class="num" style="color:#dc2626">{n_crit}</div>
+      <div class="num" style="color:#dc2626">{n_crit:,}</div>
       <div class="lbl" style="color:#b91c1c">Critical Issues</div>
     </div>
     <div class="stat" style="background:#fffbeb">
-      <div class="num" style="color:#d97706">{n_warn}</div>
+      <div class="num" style="color:#d97706">{n_warn:,}</div>
       <div class="lbl" style="color:#b45309">Warnings</div>
     </div>
     <div class="stat" style="background:#eff6ff">
-      <div class="num" style="color:#2563eb">{n_info}</div>
+      <div class="num" style="color:#2563eb">{n_info:,}</div>
       <div class="lbl" style="color:#1d4ed8">Info</div>
     </div>
   </div>
 </div>
 
+{leaderboard_html}
+
 {takeaways_html}
 
+{chart_html}
+
+{employee_table_html}
+
+{project_table_html}
+
 <div class="card">
-  <h2 style="margin:0 0 16px;font-size:1rem;font-weight:700">All Issues</h2>
+  <h2 style="margin:0 0 4px;font-size:1rem;font-weight:700">All Issues</h2>
+  <p style="margin:0 0 14px;font-size:0.8rem;color:#6b7280">CHECK-13 (hours accuracy) is excluded here — see Detailed Findings below.</p>
+  {filter_controls}
   <div style="overflow-x:auto">
-  <table>
+  <table id="issues-table">
     <thead><tr>
       <th>Severity</th><th>Check</th><th>User</th><th>Date</th><th>Issue</th>
     </tr></thead>
-    <tbody>{"".join(rows_html)}</tbody>
+    <tbody id="issues-tbody">{"".join(rows_html)}</tbody>
   </table>
   </div>
 </div>
@@ -239,6 +575,8 @@ def generate(
   <h2 style="margin:0 0 16px;font-size:1rem;font-weight:700">Detailed Findings</h2>
   {detail_items}
 </div>
+
+{_FILTER_JS}
 </body>
 </html>"""
 

@@ -37,7 +37,7 @@ LABELS = {
 SEVERITY_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
 
 
-def _issue(check, severity, user, date, brief, detail):
+def _issue(check, severity, user, date, brief, detail, project=""):
     return {
         "severity": severity,
         "check": check,
@@ -46,6 +46,7 @@ def _issue(check, severity, user, date, brief, detail):
         "date": date,
         "brief": brief,
         "detail": detail,
+        "project": project,
     }
 
 
@@ -93,12 +94,14 @@ def run_all() -> tuple[list[dict], list[dict]]:
                             "CHECK-1", "CRITICAL", user, date,
                             f"Invalid timestamp: {field_name}={val}",
                             f"Row {i}: {user} | {date} | {field_name}={val}",
+                            project=project,
                         ))
                 except (ValueError, IndexError):
                     issues.append(_issue(
                         "CHECK-1", "CRITICAL", user, date,
                         f"Unparseable timestamp: {field_name}={val}",
                         f"Row {i}: {user} | {date} | {field_name}={val} (unparseable)",
+                        project=project,
                     ))
 
         # CHECK-3: Billed on approved leave day
@@ -107,6 +110,7 @@ def run_all() -> tuple[list[dict], list[dict]]:
                 "CHECK-3", "CRITICAL", user, date,
                 f"Billed on approved leave day — project={project}",
                 f"Row {i}: {user} | {date} | project={project}",
+                project=project,
             ))
 
         # CHECK-4: Unassigned project
@@ -115,6 +119,7 @@ def run_all() -> tuple[list[dict], list[dict]]:
                 "CHECK-4", "CRITICAL", user, date,
                 f"Unassigned project: '{project}'",
                 f"Row {i}: {user} billed {project!r} | assigned={sorted(user_projs.get(user, set()))}",
+                project=project,
             ))
 
         # CHECK-5: Archived project
@@ -123,6 +128,7 @@ def run_all() -> tuple[list[dict], list[dict]]:
                 "CHECK-5", "CRITICAL", user, date,
                 f"Archived project: '{project}'",
                 f"Row {i}: {user} | {date} | project={project} (archived)",
+                project=project,
             ))
 
         # CHECK-6: Wrong hourly rate
@@ -132,6 +138,7 @@ def run_all() -> tuple[list[dict], list[dict]]:
                 "CHECK-6", "WARNING", user, date,
                 f"Wrong rate: {rate} (canonical={canonical})",
                 f"Row {i}: {user} | rate={rate} | canonical={canonical}",
+                project=project,
             ))
 
         # CHECK-7: Missing activity
@@ -140,6 +147,7 @@ def run_all() -> tuple[list[dict], list[dict]]:
                 "CHECK-7", "WARNING", user, date,
                 f"Missing activity — desc={desc[:35]!r}",
                 f"Row {i}: {user} | {date} | project={project} | desc={desc[:40]!r}",
+                project=project,
             ))
 
         # CHECK-8: Missing description
@@ -148,9 +156,10 @@ def run_all() -> tuple[list[dict], list[dict]]:
                 "CHECK-8", "WARNING", user, date,
                 f"Missing description — activity={activity or '(none)'}",
                 f"Row {i}: {user} | {date} | project={project} | activity={activity}",
+                project=project,
             ))
 
-        # CHECK-9: Missing project
+        # CHECK-9: Missing project — project field is intentionally empty
         if not project:
             issues.append(_issue(
                 "CHECK-9", "WARNING", user, date,
@@ -164,6 +173,7 @@ def run_all() -> tuple[list[dict], list[dict]]:
                 "CHECK-10", "CRITICAL", user, date,
                 f"Deactivated employee billing — project={project}",
                 f"Row {i}: {user} | {date} | project={project}",
+                project=project,
             ))
 
         # CHECK-11: Weekend entry
@@ -174,6 +184,7 @@ def run_all() -> tuple[list[dict], list[dict]]:
                     "CHECK-11", "INFO", user, date,
                     f"Weekend entry ({d.strftime('%A')}) — project={project}",
                     f"Row {i}: {user} | {date} ({d.strftime('%A')}) | project={project} | desc={desc[:40]!r}",
+                    project=project,
                 ))
         except ValueError:
             pass
@@ -184,6 +195,7 @@ def run_all() -> tuple[list[dict], list[dict]]:
                 "CHECK-14", "WARNING", user, date,
                 f"Billed on public holiday — project={project}",
                 f"Row {i}: {user} | {date} (public holiday) | project={project}",
+                project=project,
             ))
 
         # CHECK-13: Hours accuracy
@@ -206,6 +218,7 @@ def run_all() -> tuple[list[dict], list[dict]]:
                         "CHECK-13", "INFO", user, date,
                         f"Hours mismatch: declared={declared}h vs calc={calc}h (diff={diff:+.2f}h)",
                         f"Row {i}: {user} | {date} | declared={declared}h calculated={calc}h diff={diff:+.2f}h",
+                        project=project,
                     ))
                     hours_issues.append({
                         "row": i, "user": user, "date": date,
@@ -260,7 +273,7 @@ def run_all() -> tuple[list[dict], list[dict]]:
                         f"row{ri}=[{rb.strftime('%H:%M')}-{re.strftime('%H:%M')} {rp}] "
                         f"row{si}=[{sb.strftime('%H:%M')}-{se.strftime('%H:%M')} {sp}]"
                     )
-                    issues.append(_issue("CHECK-2", "CRITICAL", user, date, brief, detail))
+                    issues.append(_issue("CHECK-2", "CRITICAL", user, date, brief, detail, project=rp))
 
     # --- CHECK-12: Active on Slack or Git but no timesheet ---
     ts_days = {(r["user"], r["date"]) for r in ts}
