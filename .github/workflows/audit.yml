@@ -5,10 +5,11 @@ on:
     inputs:
       data_version:
         description: "Data version to audit"
-        default: "v3"
+        default: "v5"
         required: true
         type: choice
         options:
+          - v5
           - v3
           - v2
           - v1
