@@ -32,6 +32,7 @@ LABELS = {
     "CHECK-12": "MISSING TIMESHEET — ACTIVE DAY",
     "CHECK-13": "HOURS FIELD ACCURACY",
     "CHECK-14": "BILLING ON PUBLIC HOLIDAY",
+    "CHECK-15": "PROJECT BUDGET OVERRUN",
 }
 
 SEVERITY_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
@@ -290,6 +291,37 @@ def run_all() -> tuple[list[dict], list[dict]]:
                 "CHECK-12", "WARNING", user, date,
                 f"Active ({signal_str}) but no timesheet",
                 f"{user} | {date} | {signal_str}",
+            ))
+
+    # --- CHECK-15: Project budget overrun (project-level, not per-row) ---
+    proj_budget_hours = ctx.get("proj_budget_hours", {})
+    proj_budget_cost  = ctx.get("proj_budget_cost",  {})
+    proj_actual_hours = ctx.get("proj_actual_hours", {})
+    proj_actual_cost  = ctx.get("proj_actual_cost",  {})
+
+    for project, budget_h in proj_budget_hours.items():
+        if budget_h <= 0:
+            continue
+        actual_h = proj_actual_hours.get(project, 0.0)
+        actual_c = proj_actual_cost.get(project, 0.0)
+        budget_c = proj_budget_cost.get(project, 0.0)
+        pct      = actual_h / budget_h
+        h_diff   = actual_h - budget_h
+        c_diff   = actual_c - budget_c
+
+        if pct > 1.0:
+            issues.append(_issue(
+                "CHECK-15", "CRITICAL", "", project,
+                f"Over budget: {actual_h:.1f}h logged vs {budget_h:.0f}h budget ({pct:.0%}) — cost ${actual_c:,.0f} vs ${budget_c:,.0f}",
+                f"Project={project} | hours: actual={actual_h:.1f} budget={budget_h:.0f} diff={h_diff:+.1f} | cost: actual=${actual_c:,.0f} budget=${budget_c:,.0f} diff=${c_diff:+,.0f}",
+                project=project,
+            ))
+        elif pct > 0.9:
+            issues.append(_issue(
+                "CHECK-15", "WARNING", "", project,
+                f"Near budget limit: {actual_h:.1f}h logged vs {budget_h:.0f}h budget ({pct:.0%}) — cost ${actual_c:,.0f} vs ${budget_c:,.0f}",
+                f"Project={project} | hours: actual={actual_h:.1f} budget={budget_h:.0f} diff={h_diff:+.1f} | cost: actual=${actual_c:,.0f} budget=${budget_c:,.0f} diff=${c_diff:+,.0f}",
+                project=project,
             ))
 
     # Sort: severity, then user, then date

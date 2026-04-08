@@ -90,21 +90,21 @@ def _check_distribution_chart(issues: list[dict]) -> str:
         color = SEV_COLOR[sev]
         pct   = max(1, round(count / max_count * 100))
         label = LABELS.get(check, check)
-        note  = " · shown in Detailed Findings" if check == "CHECK-13" else ""
+        note  = " ·&nbsp;see Detailed Findings" if check == "CHECK-13" else ""
         rows.append(f"""
   <div style="display:flex;align-items:center;gap:10px;margin:5px 0">
-    <span style="font-family:monospace;font-size:0.75rem;color:#6b7280;width:76px;text-align:right;flex-shrink:0">{esc(check)}</span>
+    <span style="font-size:0.8rem;font-weight:600;color:#374151;width:240px;text-align:right;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="{esc(check)}">{esc(label)}</span>
     <div style="flex:1;background:#f3f4f6;border-radius:4px;height:18px;min-width:0">
       <div style="width:{pct}%;height:100%;background:{color};border-radius:4px;opacity:0.82;min-width:4px"></div>
     </div>
     <span style="font-size:0.8rem;font-weight:700;color:#111827;width:46px;text-align:right;flex-shrink:0">{count:,}</span>
-    <span style="font-size:0.75rem;color:#6b7280;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{esc(label)}{esc(note)}</span>
+    <span style="font-size:0.72rem;color:#9ca3af;white-space:nowrap">{esc(check)}{note}</span>
   </div>""")
 
     return f"""
 <div class="card">
   <h2 style="margin:0 0 14px;font-size:1rem;font-weight:700">Issues by Check Type</h2>
-  <div style="max-width:900px">{''.join(rows)}
+  <div style="max-width:960px">{''.join(rows)}
   </div>
 </div>"""
 
@@ -193,11 +193,11 @@ def _employee_summary_table(user_stats: dict) -> str:
     return f"""
 <div class="card">
   <h2 style="margin:0 0 16px;font-size:1rem;font-weight:700">Per-Employee Summary
-    <span style="font-weight:400;color:#6b7280;font-size:0.8rem;margin-left:8px">{len(ranked)} employees with issues &nbsp;·&nbsp; excludes CHECK-13 (hours accuracy)</span>
+    <span style="font-weight:400;color:#6b7280;font-size:0.8rem;margin-left:8px">{len(ranked)} employees with issues &nbsp;·&nbsp; excludes Hours Accuracy check</span>
   </h2>
-  <div style="overflow-x:auto">
+  <div style="overflow-x:auto;overflow-y:auto;max-height:400px;border:1px solid #e5e7eb;border-radius:6px">
   <table>
-    <thead><tr>
+    <thead style="position:sticky;top:0;z-index:1"><tr>
       <th style="{th}">#</th>
       <th style="{th}">Employee</th>
       <th style="{th};text-align:right">Critical</th>
@@ -239,11 +239,11 @@ def _project_summary_table(project_stats: dict) -> str:
     return f"""
 <div class="card">
   <h2 style="margin:0 0 16px;font-size:1rem;font-weight:700">Per-Project Summary
-    <span style="font-weight:400;color:#6b7280;font-size:0.8rem;margin-left:8px">{len(ranked)} projects with issues &nbsp;·&nbsp; excludes CHECK-13 (hours accuracy)</span>
+    <span style="font-weight:400;color:#6b7280;font-size:0.8rem;margin-left:8px">{len(ranked)} projects with issues &nbsp;·&nbsp; excludes Hours Accuracy check</span>
   </h2>
-  <div style="overflow-x:auto">
+  <div style="overflow-x:auto;overflow-y:auto;max-height:400px;border:1px solid #e5e7eb;border-radius:6px">
   <table>
-    <thead><tr>
+    <thead style="position:sticky;top:0;z-index:1"><tr>
       <th style="{th}">#</th>
       <th style="{th}">Project</th>
       <th style="{th};text-align:right">Critical</th>
@@ -258,12 +258,130 @@ def _project_summary_table(project_stats: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Project budget vs actuals table
+# ---------------------------------------------------------------------------
+
+def _project_budget_table(
+    proj_budget_hours: dict,
+    proj_budget_cost:  dict,
+    proj_actual_hours: dict,
+    proj_actual_cost:  dict,
+) -> str:
+    """
+    Full project-by-project comparison: budget hours & cost vs actuals from timesheets.
+    All projects in pm_projects.csv are shown regardless of whether they have issues.
+    """
+    if not proj_budget_hours:
+        return ""
+
+    # Build rows sorted by % budget consumed descending
+    rows_data = []
+    all_projects = set(proj_budget_hours) | set(proj_actual_hours)
+    for proj in sorted(all_projects):
+        bh = proj_budget_hours.get(proj, 0.0)
+        ah = proj_actual_hours.get(proj, 0.0)
+        bc = proj_budget_cost.get(proj, 0.0)
+        ac = proj_actual_cost.get(proj, 0.0)
+        pct_h = (ah / bh * 100) if bh > 0 else None
+        pct_c = (ac / bc * 100) if bc > 0 else None
+        rows_data.append((proj, bh, ah, bc, ac, pct_h, pct_c))
+
+    rows_data.sort(key=lambda x: -(x[5] or 0))
+
+    th = "padding:8px 12px;font-size:0.7rem;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;border-bottom:2px solid #e5e7eb;text-align:right;white-space:nowrap"
+    th_l = th.replace("text-align:right;", "")
+
+    def _bar(pct) -> str:
+        if pct is None:
+            return '<span style="color:#9ca3af;font-size:0.75rem">—</span>'
+        capped = min(pct, 100)
+        color  = "#dc2626" if pct > 100 else "#d97706" if pct > 90 else "#16a34a"
+        return (
+            f'<div style="display:flex;align-items:center;gap:6px">'
+            f'<div style="flex:1;background:#f3f4f6;border-radius:3px;height:10px;min-width:60px">'
+            f'<div style="width:{capped:.0f}%;height:100%;background:{color};border-radius:3px;min-width:3px"></div>'
+            f'</div>'
+            f'<span style="font-size:0.78rem;font-weight:700;color:{color};width:42px;text-align:right">{pct:.0f}%</span>'
+            f'</div>'
+        )
+
+    def _delta(actual: float, budget: float) -> str:
+        if budget == 0:
+            return '<span style="color:#9ca3af">—</span>'
+        diff  = actual - budget
+        color = "#dc2626" if diff > 0 else "#16a34a" if diff < 0 else "#6b7280"
+        sign  = "+" if diff > 0 else ""
+        return f'<span style="color:{color};font-weight:600">{sign}{diff:,.1f}</span>'
+
+    def _cost_delta(actual: float, budget: float) -> str:
+        if budget == 0:
+            return '<span style="color:#9ca3af">—</span>'
+        diff  = actual - budget
+        color = "#dc2626" if diff > 0 else "#16a34a" if diff < 0 else "#6b7280"
+        sign  = "+" if diff > 0 else ""
+        return f'<span style="color:{color};font-weight:600">{sign}${diff:,.0f}</span>'
+
+    td = "padding:7px 12px;border-bottom:1px solid #f3f4f6;font-size:0.83rem"
+    rows_html = []
+    for proj, bh, ah, bc, ac, pct_h, pct_c in rows_data:
+        bg = "#fef2f2" if (pct_h or 0) > 100 else "#fffbeb" if (pct_h or 0) > 90 else "#fff"
+        rows_html.append(
+            f'<tr style="background:{bg}">'
+            f'<td style="{td};font-weight:600;white-space:nowrap">{esc(proj)}</td>'
+            f'<td style="{td};text-align:right">{bh:,.0f}</td>'
+            f'<td style="{td};text-align:right">{ah:,.1f}</td>'
+            f'<td style="{td};text-align:right">{_delta(ah, bh)}</td>'
+            f'<td style="{td};min-width:140px">{_bar(pct_h)}</td>'
+            f'<td style="{td};text-align:right">${bc:,.0f}</td>'
+            f'<td style="{td};text-align:right">${ac:,.0f}</td>'
+            f'<td style="{td};text-align:right">{_cost_delta(ac, bc)}</td>'
+            f'</tr>'
+        )
+
+    over  = sum(1 for *_, pct_h, _ in rows_data if (pct_h or 0) > 100)
+    near  = sum(1 for *_, pct_h, _ in rows_data if 90 < (pct_h or 0) <= 100)
+
+    legend = ""
+    if over:
+        legend += f'<span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;margin-right:6px">{over} over budget</span>'
+    if near:
+        legend += f'<span style="background:#fffbeb;color:#d97706;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;margin-right:6px">{near} near limit</span>'
+
+    return f"""
+<div class="card">
+  <h2 style="margin:0 0 6px;font-size:1rem;font-weight:700">Project Budget vs Actuals
+    <span style="font-weight:400;color:#6b7280;font-size:0.8rem;margin-left:8px">hours and cost from timesheets vs pm_projects.csv budgets</span>
+  </h2>
+  <div style="margin-bottom:14px">{legend}</div>
+  <div style="overflow-x:auto;overflow-y:auto;max-height:480px;border:1px solid #e5e7eb;border-radius:6px">
+  <table>
+    <thead style="position:sticky;top:0;z-index:1"><tr>
+      <th style="{th_l}">Project</th>
+      <th style="{th}">Budget h</th>
+      <th style="{th}">Actual h</th>
+      <th style="{th}">Hours Δ</th>
+      <th style="{th};text-align:left">% Used</th>
+      <th style="{th}">Budget $</th>
+      <th style="{th}">Actual $</th>
+      <th style="{th}">Cost Δ</th>
+    </tr></thead>
+    <tbody>{"".join(rows_html)}</tbody>
+  </table>
+  </div>
+</div>"""
+
+
+# ---------------------------------------------------------------------------
 # Feature #3 — Filter controls + JS
 # ---------------------------------------------------------------------------
 
 def _filter_controls(issues: list[dict]) -> str:
-    checks  = sorted({i["check"] for i in issues if i["check"] != "CHECK-13"})
-    chk_opts = "".join(f'<option value="{c}">{c}</option>' for c in checks)
+    from audit.checks import LABELS
+    checks   = sorted({i["check"] for i in issues if i["check"] != "CHECK-13"})
+    chk_opts = "".join(
+        f'<option value="{c}">{esc(LABELS.get(c, c))}</option>'
+        for c in checks
+    )
     sel = "padding:6px 10px;border:1px solid #e5e7eb;border-radius:6px;font-size:0.82rem;background:#fff;color:#374151"
     inp = "padding:6px 10px;border:1px solid #e5e7eb;border-radius:6px;font-size:0.82rem;background:#fff;color:#374151;width:130px"
     return f"""
@@ -430,6 +548,10 @@ def generate(
     key_takeaways: list = None,
     data_version: str = "v3",
     model: str = "claude-haiku-4-5-20251001",
+    proj_budget_hours: dict = None,
+    proj_budget_cost:  dict = None,
+    proj_actual_hours: dict = None,
+    proj_actual_cost:  dict = None,
 ) -> str:
     """
     Write output/audit_{version}_{model_short}_YYYY-MM-DD.html and return the file path.
@@ -457,6 +579,14 @@ def generate(
 
     # --- Feature #2: per-project table ---
     project_table_html = _project_summary_table(project_stats)
+
+    # --- Project budget vs actuals ---
+    budget_table_html = _project_budget_table(
+        proj_budget_hours or {},
+        proj_budget_cost  or {},
+        proj_actual_hours or {},
+        proj_actual_cost  or {},
+    )
 
     # --- Feature #3: all-issues table with data-* attributes + filter controls ---
     # Exclude CHECK-13 (shown in Detailed Findings with its own table)
@@ -557,13 +687,15 @@ def generate(
 
 {project_table_html}
 
+{budget_table_html}
+
 <div class="card">
   <h2 style="margin:0 0 4px;font-size:1rem;font-weight:700">All Issues</h2>
   <p style="margin:0 0 14px;font-size:0.8rem;color:#6b7280">CHECK-13 (hours accuracy) is excluded here — see Detailed Findings below.</p>
   {filter_controls}
-  <div style="overflow-x:auto">
+  <div style="overflow-x:auto;overflow-y:auto;max-height:560px;border:1px solid #e5e7eb;border-radius:6px">
   <table id="issues-table">
-    <thead><tr>
+    <thead style="position:sticky;top:0;z-index:1"><tr>
       <th>Severity</th><th>Check</th><th>User</th><th>Date</th><th>Issue</th>
     </tr></thead>
     <tbody id="issues-tbody">{"".join(rows_html)}</tbody>

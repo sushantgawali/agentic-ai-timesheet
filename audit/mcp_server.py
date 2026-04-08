@@ -19,7 +19,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from audit.checks import run_all
-from audit.loader import load_all, discover_csv_files, DATA_VERSION
+from audit.loader import load_all, discover_csv_files, load_sow_documents, DATA_VERSION
 from audit.report import generate
 
 app = Server("audit-tools")
@@ -31,6 +31,18 @@ _results: dict = {}
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     return [
+        Tool(
+            name="read_sow_documents",
+            description=(
+                "Parse all Statement of Work (SOW) DOCX files in the data directory and return "
+                "structured data: project name, client, SOW reference, effective/end dates, "
+                "contracted monthly value, and team composition (name, role, allocation %, "
+                "contractual rate USD/hr, monthly hours commitment). "
+                "Use this to cross-reference who should be billing to each project, at what "
+                "rate, and for how many hours — then compare against timesheet actuals."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
         Tool(
             name="discover_data_files",
             description=(
@@ -93,7 +105,52 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps({"error": msg}))]
 
     try:
-        if name == "discover_data_files":
+        if name == "read_sow_documents":
+            sow_docs = load_sow_documents()
+            ctx = load_all()
+            # Attach actuals per project so Claude can compare in one call
+            proj_actual_hours = ctx.get("proj_actual_hours", {})
+            proj_actual_cost  = ctx.get("proj_actual_cost",  {})
+            proj_budget_hours = ctx.get("proj_budget_hours", {})
+            proj_budget_cost  = ctx.get("proj_budget_cost",  {})
+
+            enriched = []
+            for doc in sow_docs:
+                pname = doc.get("project_name", "")
+                enriched.append({
+                    "filename":       doc["filename"],
+                    "project_name":   pname,
+                    "client":         doc.get("client"),
+                    "sow_reference":  doc.get("sow_reference"),
+                    "effective_date": doc.get("effective_date"),
+                    "end_date":       doc.get("end_date"),
+                    "monthly_value":  doc.get("monthly_value"),
+                    "team":           doc.get("team", []),
+                    # Best-effort actuals lookup (project name may differ from timesheet)
+                    "note": "project_name in SOW may differ from project name used in timesheets",
+                })
+
+            return ok({
+                "sow_count":          len(sow_docs),
+                "sow_documents":      enriched,
+                "project_actuals":    {
+                    p: {
+                        "actual_hours":  round(proj_actual_hours.get(p, 0), 2),
+                        "actual_cost":   round(proj_actual_cost.get(p, 0), 2),
+                        "budget_hours":  proj_budget_hours.get(p, 0),
+                        "budget_cost":   proj_budget_cost.get(p, 0),
+                    }
+                    for p in sorted(set(proj_budget_hours) | set(proj_actual_hours))
+                },
+                "hint": (
+                    "SOW project names often differ from timesheet project names. "
+                    "Use customer/scope context to match them. "
+                    "Compare SOW team rates against timesheet hourly_rate values "
+                    "and SOW monthly_hours against actual hours logged per user per month."
+                ),
+            })
+
+        elif name == "discover_data_files":
             files = discover_csv_files()
             return ok({
                 "data_dir": os.environ.get("DATA_DIR", "data"),
@@ -131,9 +188,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         elif name == "run_audit_checks":
             issues, hours_issues = run_all()
             ctx = load_all()
-            _results["issues"]        = issues
-            _results["hours_issues"]  = hours_issues
-            _results["total_entries"] = len(ctx["ts"])
+            _results["issues"]            = issues
+            _results["hours_issues"]      = hours_issues
+            _results["total_entries"]     = len(ctx["ts"])
+            _results["proj_budget_hours"] = ctx.get("proj_budget_hours", {})
+            _results["proj_budget_cost"]  = ctx.get("proj_budget_cost",  {})
+            _results["proj_actual_hours"] = ctx.get("proj_actual_hours", {})
+            _results["proj_actual_cost"]  = ctx.get("proj_actual_cost",  {})
 
             n_crit = sum(1 for i in issues if i["severity"] == "CRITICAL")
             n_warn = sum(1 for i in issues if i["severity"] == "WARNING")
@@ -175,6 +236,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 key_takeaways=takeaways,
                 data_version=DATA_VERSION,
                 model=os.environ.get("MODEL", "claude-haiku-4-5-20251001"),
+                proj_budget_hours=_results.get("proj_budget_hours", {}),
+                proj_budget_cost=_results.get("proj_budget_cost",  {}),
+                proj_actual_hours=_results.get("proj_actual_hours", {}),
+                proj_actual_cost=_results.get("proj_actual_cost",  {}),
             )
             return ok({"status": "written", "path": path})
 

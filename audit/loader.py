@@ -23,6 +23,8 @@ Missing roles degrade gracefully — related checks simply produce no findings.
 """
 import csv
 import os
+import xml.etree.ElementTree as ET
+import zipfile
 from collections import defaultdict
 from typing import Optional
 
@@ -216,6 +218,140 @@ def _aggregate_slack_prebuilt(rows: list[dict]) -> dict[tuple, int]:
 
 
 # ---------------------------------------------------------------------------
+# DOCX reader & SOW parser (stdlib only — no python-docx dependency)
+# ---------------------------------------------------------------------------
+
+_WNS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def read_docx_text(path: str) -> str:
+    """
+    Extract plain text from a .docx file using stdlib zipfile + xml.etree.
+    Returns an empty string on error.
+    """
+    try:
+        with zipfile.ZipFile(path) as z:
+            with z.open("word/document.xml") as f:
+                tree = ET.parse(f)
+        lines = []
+        for para in tree.iter(f"{_WNS}p"):
+            line = "".join(t.text or "" for t in para.iter(f"{_WNS}t"))
+            if line.strip():
+                lines.append(line.strip())
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _parse_sow_text(text: str) -> dict:
+    """
+    Parse a SOW document's plain text and return structured fields:
+        project_name, client, sow_reference, effective_date, end_date,
+        monthly_value, team: [{name, role, allocation, rate, monthly_hours}]
+    """
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    result: dict = {
+        "project_name": None,
+        "client": None,
+        "sow_reference": None,
+        "effective_date": None,
+        "end_date": None,
+        "monthly_value": None,
+        "team": [],
+    }
+    n = len(lines)
+
+    _STOP_WORDS = {
+        "Signatures", "For:", "Name", "KPI", "Target", "#",
+        "Deliverable", "Assumptions", "Scope", "Commercial",
+        "Invoicing", "Payment",
+    }
+
+    i = 0
+    while i < n:
+        line = lines[i]
+
+        if line == "STATEMENT OF WORK" and i + 1 < n:
+            result["project_name"] = lines[i + 1]
+
+        if line.startswith("SOW Reference:"):
+            result["sow_reference"] = line.split(":", 1)[1].strip()
+
+        # Client is the line after "Client", before "Vendor"
+        if line == "Client" and i + 1 < n and lines[i + 1] not in ("Vendor", "Effective Date", "End Date"):
+            result["client"] = lines[i + 1]
+
+        if line == "Effective Date" and i + 1 < n:
+            result["effective_date"] = lines[i + 1]
+
+        if line == "End Date" and i + 1 < n:
+            result["end_date"] = lines[i + 1]
+
+        if "Estimated monthly value:" in line:
+            result["monthly_value"] = line.split(":", 1)[1].strip()
+
+        # Team composition table header pattern
+        if (
+            line == "Name" and i + 4 < n
+            and lines[i + 1] == "Role"
+            and lines[i + 2] == "Allocation"
+            and "Rate" in lines[i + 3]
+            and "Monthly Hours" in lines[i + 4]
+        ):
+            j = i + 5
+            while j + 4 < n:
+                name = lines[j]
+                if not name or any(sw in name for sw in _STOP_WORDS):
+                    break
+                rate_str  = lines[j + 3]
+                hours_str = lines[j + 4]
+                if not ("$" in rate_str or rate_str.replace(",", "").isdigit()):
+                    break
+                try:
+                    rate  = float(rate_str.replace("$", "").replace(",", ""))
+                    hours = int(hours_str.replace(",", ""))
+                    result["team"].append({
+                        "name":          name,
+                        "role":          lines[j + 1],
+                        "allocation":    lines[j + 2],
+                        "rate":          rate,
+                        "monthly_hours": hours,
+                    })
+                    j += 5
+                except (ValueError, IndexError):
+                    break
+
+        i += 1
+
+    return result
+
+
+def load_sow_documents() -> list[dict]:
+    """
+    Read and parse all .docx files from DATA_DIR/documents/sow/.
+    Returns a list of parsed SOW dicts (project_name, team, dates, etc.)
+    plus the original filename and raw text.
+    """
+    sow_dir = os.path.join(DATA_DIR, "documents", "sow")
+    if not os.path.isdir(sow_dir):
+        return []
+    docs = []
+    for entry in sorted(os.listdir(sow_dir)):
+        if not entry.lower().endswith(".docx"):
+            continue
+        path = os.path.join(sow_dir, entry)
+        text = read_docx_text(path)
+        parsed = _parse_sow_text(text)
+        docs.append({
+            "filename": entry,
+            "path":     path,
+            "text":     text,
+            **parsed,
+        })
+    return docs
+
+
+# ---------------------------------------------------------------------------
 # Main loader
 # ---------------------------------------------------------------------------
 
@@ -309,6 +445,45 @@ def load_all() -> dict:
         if d:
             public_holidays.add(d)
 
+    # --- project budget from pm_projects.csv ---
+    proj_budget_hours: dict[str, float] = {}
+    proj_budget_cost:  dict[str, float] = {}
+    for p in projects:
+        pname = p.get("project_name") or p.get("name", "")
+        if pname:
+            try:
+                proj_budget_hours[pname] = float(p.get("budget_hours", 0) or 0)
+                proj_budget_cost[pname]  = float(p.get("budget_cost",  0) or 0)
+            except (ValueError, TypeError):
+                pass
+
+    # --- project actuals from timesheets ---
+    proj_actual_hours: dict[str, float] = defaultdict(float)
+    proj_actual_cost:  dict[str, float] = defaultdict(float)
+    for row in ts:
+        proj = row.get("project", "").strip()
+        if not proj:
+            continue
+        try:
+            h = float(row.get("hours", 0) or 0)
+        except (ValueError, TypeError):
+            h = 0.0
+        # Use the row's hourly_rate first (what was billed); fall back to canonical rate
+        try:
+            r = float(row.get("hourly_rate", 0) or 0)
+        except (ValueError, TypeError):
+            r = 0.0
+        if not r:
+            try:
+                r = float(emp_rate.get(row.get("user", ""), 0) or 0)
+            except (ValueError, TypeError):
+                r = 0.0
+        proj_actual_hours[proj] += h
+        proj_actual_cost[proj]  += h * r
+
+    # --- SOW documents ---
+    sow_data = load_sow_documents()
+
     _cache = {
         "ts":               ts,
         "emp_rate":         emp_rate,
@@ -322,6 +497,13 @@ def load_all() -> dict:
         "public_holidays":  public_holidays,
         "calendar_leave_rows": cal_leave_rows,
         "email_rows":       email_rows,
+        # Project budget & actuals
+        "proj_budget_hours": proj_budget_hours,
+        "proj_budget_cost":  proj_budget_cost,
+        "proj_actual_hours": dict(proj_actual_hours),
+        "proj_actual_cost":  dict(proj_actual_cost),
+        # SOW documents
+        "sow_data":          sow_data,
         # Discovery metadata
         "discovered_files": discovered,
         "role_map":         role_map,
