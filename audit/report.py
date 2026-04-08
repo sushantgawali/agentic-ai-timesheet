@@ -468,9 +468,9 @@ def _hours_table(hours_issues: list[dict]) -> str:
             f'</tr>'
         )
     return (
-        f'<div style="overflow-x:auto">'
+        f'<div style="overflow-x:auto;overflow-y:auto;max-height:480px;border:1px solid #e5e7eb;border-radius:6px">'
         f'<table style="width:100%;border-collapse:collapse;font-size:0.875rem">'
-        f'<thead><tr>'
+        f'<thead style="position:sticky;top:0;z-index:1"><tr>'
         f'<th style="{th}">Row</th>'
         f'<th style="{th}">User</th>'
         f'<th style="{th}">Date</th>'
