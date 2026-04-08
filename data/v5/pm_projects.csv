@@ -1,0 +1,19 @@
+name,customer,budget_hours,budget_cost,end_date,status
+AI Workshops,Technogise,300,24000,2026-12-31,active
+Universal Ether,Universal,800,60000,2026-12-31,active
+Home Health Notify,HHN,300,23250,2026-08-31,active
+Promobi - Apple Stream,Promobi,250,18750,2026-09-30,active
+Promobi - PII/PHI Detection,Promobi,150,11250,2026-09-30,active
+Peak XV - Main,Peak,500,37500,2026-12-31,active
+Peak XV - Sprout Stream,Peak,350,26250,2026-12-31,active
+Peak XV - Migration Admin Apps,Peak,400,32000,2026-12-31,active
+Economist - Ads,Economist,600,45000,2026-12-31,active
+Economist - In Life,Economist,400,30000,2026-12-31,active
+Team Beach,Technogise,200,14000,2026-06-30,active
+Entain - CRM,Entain,1500,135000,2026-12-31,active
+Entain - Java Upgrade,Entain,400,30000,2026-09-30,active
+Provus,Provus,800,60000,2026-12-31,active
+Caizin Smarsh,Smarsh,300,21000,2026-12-31,active
+CRED,CRED,500,40000,2026-12-31,active
+Shippit - Shipping Squad,Shippit,200,15000,2026-09-30,active
+Shippit - Rate Card,Shippit,250,18750,2026-09-30,active

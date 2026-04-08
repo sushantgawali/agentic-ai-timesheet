@@ -19,7 +19,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from audit.checks import run_all
-from audit.loader import load_all, DATA_VERSION
+from audit.loader import load_all, discover_csv_files, DATA_VERSION
 from audit.report import generate
 
 app = Server("audit-tools")
@@ -31,6 +31,16 @@ _results: dict = {}
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     return [
+        Tool(
+            name="discover_data_files",
+            description=(
+                "Scan the data directory for all CSV files, read their column headers, "
+                "and infer each file's semantic role (timesheets, employees, assignments, "
+                "leave, projects, slack, git, holidays, calendar_leave, emails, calendar). "
+                "Call this first to understand what data is available before loading."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
         Tool(
             name="load_timesheet_data",
             description=(
@@ -83,7 +93,27 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps({"error": msg}))]
 
     try:
-        if name == "load_timesheet_data":
+        if name == "discover_data_files":
+            files = discover_csv_files()
+            return ok({
+                "data_dir": os.environ.get("DATA_DIR", "data"),
+                "files_found": len(files),
+                "files": [
+                    {
+                        "filename": f["filename"],
+                        "columns":  f["columns"],
+                        "role":     f["role"],
+                    }
+                    for f in files
+                ],
+                "roles_detected": {
+                    f["role"]: f["filename"]
+                    for f in files if f["role"]
+                },
+                "unrecognised": [f["filename"] for f in files if not f["role"]],
+            })
+
+        elif name == "load_timesheet_data":
             ctx = load_all()
             return ok({
                 "status": "loaded",

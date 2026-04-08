@@ -31,6 +31,7 @@ LABELS = {
     "CHECK-11": "WEEKEND ENTRIES",
     "CHECK-12": "MISSING TIMESHEET — ACTIVE DAY",
     "CHECK-13": "HOURS FIELD ACCURACY",
+    "CHECK-14": "BILLING ON PUBLIC HOLIDAY",
 }
 
 SEVERITY_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
@@ -56,14 +57,15 @@ def run_all() -> tuple[list[dict], list[dict]]:
     hours_issues — list of row-level hour-accuracy records (CHECK-13 only)
     """
     ctx = load_all()
-    ts            = ctx["ts"]
-    emp_rate      = ctx["emp_rate"]
-    emp_status    = ctx["emp_status"]
-    user_projs    = ctx["user_projs"]
-    approved_leave= ctx["approved_leave"]
-    proj_status   = ctx["proj_status"]
-    slack_active  = ctx["slack_active"]
-    git_active    = ctx["git_active"]
+    ts             = ctx["ts"]
+    emp_rate       = ctx["emp_rate"]
+    emp_status     = ctx["emp_status"]
+    user_projs     = ctx["user_projs"]
+    approved_leave = ctx["approved_leave"]
+    proj_status    = ctx["proj_status"]
+    slack_active   = ctx["slack_active"]
+    git_active     = ctx["git_active"]
+    public_holidays = ctx.get("public_holidays", set())
 
     issues: list[dict] = []
     hours_issues: list[dict] = []
@@ -175,6 +177,14 @@ def run_all() -> tuple[list[dict], list[dict]]:
                 ))
         except ValueError:
             pass
+
+        # CHECK-14: Billing on a public holiday (only runs when holiday data is available)
+        if public_holidays and date in public_holidays:
+            issues.append(_issue(
+                "CHECK-14", "WARNING", user, date,
+                f"Billed on public holiday — project={project}",
+                f"Row {i}: {user} | {date} (public holiday) | project={project}",
+            ))
 
         # CHECK-13: Hours accuracy
         skip = any(
