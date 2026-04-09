@@ -564,7 +564,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 "finding_type_counts":    result["finding_type_counts"],
                 "critical_count":         result["critical_count"],
                 "warning_count":          result["warning_count"],
-                "findings":               result["findings"],
+                "sample_findings":        result["findings"][:15],
+                "note": (
+                    f"Full {result['total_findings']} findings saved to agent state. "
+                    "Sample of first 15 shown above."
+                ),
                 "hint": (
                     "Leakage findings saved. total_estimated_impact = total USD revenue at risk. "
                     "critical_count items require immediate attention before invoicing."
@@ -586,7 +590,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 "finding_type_counts": result["finding_type_counts"],
                 "critical_count":      result["critical_count"],
                 "warning_count":       result["warning_count"],
-                "findings":            result["findings"],
+                "sample_findings":     result["findings"][:15],
+                "note": (
+                    f"Full {result['total_findings']} findings saved to agent state. "
+                    "Sample of first 15 shown above."
+                ),
                 "hint": (
                     "Compliance findings saved. critical items must be resolved before invoicing. "
                     "warning items should be reviewed and documented."
@@ -602,14 +610,20 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             from audit.agents.invoice import build_invoice_draft as _invoice
             result = _invoice(reconciled=reconciled, contract_model=contract_model)
             _save_state("invoice_draft", result)
+            flagged_lines = [l for l in result["invoice_lines"] if l.get("flags")]
             return ok({
                 "status":               "saved",
                 "grand_total":          result["grand_total"],
                 "billable_hours_total": result["billable_hours_total"],
                 "line_item_count":      result["line_item_count"],
                 "project_subtotals":    result["project_subtotals"],
-                "invoice_lines":        result["invoice_lines"],
-                "warnings":             result["warnings"],
+                "flagged_lines":        flagged_lines[:20],
+                "flagged_line_count":   len(flagged_lines),
+                "warnings":             result["warnings"][:20],
+                "note": (
+                    f"Full {result['line_item_count']} invoice lines saved to agent state. "
+                    "Flagged lines (rate_fallback / role_mismatch) shown above."
+                ),
                 "hint": (
                     "Invoice draft saved. Lines with 'rate_fallback' flag use timesheet rates "
                     "instead of contract rates — verify before sending. "
