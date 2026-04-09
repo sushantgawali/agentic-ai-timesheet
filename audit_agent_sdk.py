@@ -1,133 +1,437 @@
 #!/usr/bin/env python3
 """
-Timesheet audit agent — Agent SDK entry point.
+Multi-agent Revenue Intelligence Orchestrator — Agent SDK entry point.
 
-Uses claude-agent-sdk with a subprocess MCP server (audit/mcp_server.py)
-that exposes the three audit tools over stdio. The Agent SDK + Claude Code
-CLI orchestrate the tool loop; the MCP server contains all audit logic.
+Runs eight focused sub-agents in a directed pipeline that prioritises:
+  • Revenue leakage detection
+  • Contract compliance checks
+  • Missing / inconsistent data flags
+  • Slack-based work detection
+
+Pipeline (numbers indicate parallelism):
+  1a. Normalization Agent   ─┐
+  1b. Contract Agent        ─┼─ (parallel)
+  1c. Context Mining Agent  ─┘
+  2.  Reconciliation Agent
+  3a. Revenue Leakage Agent ─┐ (parallel)
+  3b. Compliance Agent      ─┘
+  4.  Invoice Drafting Agent
+  5.  Review & Alert Agent
+
+Each sub-agent calls focused MCP tools, reasons over the results, and
+writes structured output to the shared agent_state/ directory so the next
+phase can consume it.
 
 Requires:
     pip install claude-agent-sdk mcp anyio
-    npm install -g @anthropic-ai/claude-code   (Claude Code CLI)
+    npm install -g @anthropic-ai/claude-code
 
 Required env var: ANTHROPIC_API_KEY
-Optional env vars: DATA_DIR (default: data), OUT_DIR (default: output), MODEL (default: claude-haiku-4-5-20251001)
+Optional env vars:
+    DATA_DIR  (default: data)
+    OUT_DIR   (default: output)
+    MODEL     (default: claude-haiku-4-5-20251001)
 """
+import asyncio
 import os
 import sys
 import time
-import anyio
 from pathlib import Path
 
+import anyio
+
 from claude_agent_sdk import (
-    query,
     ClaudeAgentOptions,
     AssistantMessage,
     ResultMessage,
     TextBlock,
+    query,
 )
 
 # ---------------------------------------------------------------------------
-# Main
+# Helpers
 # ---------------------------------------------------------------------------
 
-async def main() -> None:
-    server_script = str(Path(__file__).parent / "audit" / "mcp_server.py")
-    model = os.environ.get("MODEL", "claude-haiku-4-5-20251001")
+MODEL      = os.environ.get("MODEL", "claude-haiku-4-5-20251001")
+DATA_DIR   = os.environ.get("DATA_DIR", "data")
+OUT_DIR    = os.environ.get("OUT_DIR", "output")
+SERVER_SCRIPT = str(Path(__file__).parent / "audit" / "mcp_server.py")
 
-    options = ClaudeAgentOptions(
-        model=model,
+
+def _mcp_options(max_turns: int = 6) -> ClaudeAgentOptions:
+    """Return ClaudeAgentOptions wired to the shared MCP server."""
+    return ClaudeAgentOptions(
+        model=MODEL,
         mcp_servers={
             "audit": {
-                "type": "stdio",
+                "type":    "stdio",
                 "command": "python3",
-                "args": [server_script],
+                "args":    [SERVER_SCRIPT],
                 "env": {
-                    "DATA_DIR":   os.environ.get("DATA_DIR", "data"),
-                    "OUT_DIR":    os.environ.get("OUT_DIR", "output"),
+                    "DATA_DIR":   DATA_DIR,
+                    "OUT_DIR":    OUT_DIR,
                     "PYTHONPATH": str(Path(__file__).parent),
                 },
             }
         },
         permission_mode="bypassPermissions",
-        max_turns=12,
+        max_turns=max_turns,
     )
 
-    print(f"[audit-agent-sdk] Starting with model={model}", flush=True)
 
-    async for message in query(
-        prompt=(
-            "Run a full timesheet audit using the audit MCP tools: "
-            "1. Call discover_data_files to see all CSV files present and their inferred roles. "
-            "2. Call read_guidelines_documents to load all HR policy and guideline documents. "
-            "   Note the rules around leave types, public holidays, timesheet field requirements, "
-            "   and any billing restrictions — use these as the compliance baseline throughout. "
-            "3. Call read_sow_documents to load all Statement of Work contracts. "
-            "   For each SOW, note the contracted team members, their rates, and monthly hours. "
-            "   Cross-reference against the project_actuals returned: identify projects where "
-            "   actual hours or cost diverge significantly from contract expectations. "
-            "   Also flag if anyone is billing to a project not listed in their SOW team. "
-            "4. Call load_timesheet_data to load and index all timesheet data. "
-            "5. Call run_audit_checks to execute all audit checks. "
-            "6. Analyse the findings (including policy violations from guidelines and SOW "
-            "   divergences), then call generate_html_report passing "
-            "key_takeaways_json as a JSON array string of 3-5 concise, specific "
-            "insights covering: critical billing anomalies, policy violations (referencing "
-            "specific guideline rules where relevant), SOW vs actual divergences, "
-            "and projects near or over budget. "
-            'Example: \'["Entain-CRM is 32% over its contracted hours budget.", '
-            '"rishabh.a billed Provus but is not listed in the Provus SOW team.", '
-            '"3 employees billed on public holidays contrary to the Holidays guideline."]\' '
-            "Then print a brief plain-text summary including guidelines findings, SOW findings, "
-            "and budget status."
-        ),
-        options=options,
-    ):
+async def _run_agent(label: str, prompt: str, max_turns: int = 6) -> str:
+    """
+    Run a single sub-agent, stream its output to stdout, and return
+    the concatenated text from all AssistantMessage blocks.
+    """
+    print(f"\n{'='*60}", flush=True)
+    print(f"[{label}] Starting...", flush=True)
+    print(f"{'='*60}", flush=True)
+
+    text_parts: list[str] = []
+    options = _mcp_options(max_turns=max_turns)
+
+    async for message in query(prompt=prompt, options=options):
         if isinstance(message, AssistantMessage):
             for block in message.content:
                 if isinstance(block, TextBlock):
                     print(block.text, end="", flush=True)
-
+                    text_parts.append(block.text)
         elif isinstance(message, ResultMessage):
             cost_usd = getattr(message, "cost_usd", None)
             cost = f" | cost: ${cost_usd:.4f}" if cost_usd else ""
-            print(f"\n[audit-agent-sdk] Done{cost}.", flush=True)
+            print(f"\n[{label}] Done{cost}.", flush=True)
 
+    return "".join(text_parts)
+
+
+# ---------------------------------------------------------------------------
+# Agent prompts
+# ---------------------------------------------------------------------------
+
+_NORMALIZATION_PROMPT = """
+You are the Normalization & Linking Agent in a multi-agent revenue intelligence pipeline.
+
+Your job: Transform all raw timesheet data into enriched WorkUnit records so that downstream
+agents can reason about billability, compliance, and revenue leakage without touching raw CSVs.
+
+Steps:
+1. Call discover_data_files to understand what data is available.
+2. Call build_work_units to normalize all timesheet rows into WorkUnits.
+3. Review the quality_summary in the response:
+   - Identify which quality flags are most prevalent (missing_activity, hours_mismatch, etc.)
+   - Note which users or projects have the most data quality issues.
+4. Print a concise summary covering:
+   - Total entries processed and distinct users/projects.
+   - Top 3 data quality issues by count.
+   - Any users with multiple quality flags (high-risk for billing disputes).
+
+Do NOT call any other tools. Your output is saved automatically for downstream agents.
+""".strip()
+
+_CONTRACT_PROMPT = """
+You are the Contract Interpreter Agent in a multi-agent revenue intelligence pipeline.
+
+Your job: Extract structured billing rules from all SOW and guideline documents so that
+downstream agents can validate timesheets against contract terms.
+
+Steps:
+1. Call build_contract_model to parse all SOW and guideline documents.
+2. Review the returned ContractModel:
+   - List each project with its monthly_cap_hours and team roster.
+   - Note the global_rules (overtime approval, billing exclusions, etc.).
+   - Flag any projects where monthly_cap_hours is None (no cap defined — risk of over-billing).
+   - Flag any ambiguous or missing clauses (e.g., no end_date, no rate for a team member).
+3. Print a concise summary covering:
+   - How many SOWs and guideline docs were parsed.
+   - Per-project: billing type, monthly cap hours, team size.
+   - Global rules that will affect compliance checks.
+   - Any missing or ambiguous contract data to watch for.
+
+Do NOT call any other tools. Your output is saved automatically for downstream agents.
+""".strip()
+
+_SLACK_MINING_PROMPT = """
+You are the Context Mining Agent (Slack) in a multi-agent revenue intelligence pipeline.
+
+Your job: Classify Slack messages to find hidden work signals, approvals, and scope changes
+that may represent billable activity not yet recorded in timesheets.
+
+Steps:
+1. Call extract_slack_signals to classify all Slack messages.
+2. Review the returned signals:
+   - work_without_timesheet: these are your primary revenue leakage signals.
+   - scope_change signals: informal requests for extra work needing change orders.
+   - approval signals: verbal go-aheads that may authorise overtime or scope.
+   - escalation signals: urgent work that often generates unlogged hours.
+3. Print a concise summary covering:
+   - Total signals found per type.
+   - Top users with unlogged work signals (by count).
+   - Notable scope change or escalation messages worth highlighting.
+   - Any channels with especially high signal density.
+
+Do NOT call any other tools. Your output is saved automatically for downstream agents.
+""".strip()
+
+_RECONCILIATION_PROMPT = """
+You are the Work Reconciliation Agent in a multi-agent revenue intelligence pipeline.
+
+Your job: Align every WorkUnit with project assignments and the contract model to determine
+what is billable, detect duplicates, and flag role mismatches before invoicing.
+
+Prerequisites: build_work_units and build_contract_model must have run already.
+
+Steps:
+1. Call reconcile_work to align work units with assignments and contract rules.
+2. Review the reconciliation results:
+   - Compare billable_count vs non_billable_count — a high non-billable ratio is a red flag.
+   - Check duplicate_count — duplicates inflate hours and must be removed before invoicing.
+   - Check role_mismatches — users billing to projects they're not contracted for.
+   - Review project_totals to identify projects with significant non-billable hours.
+3. Print a concise summary covering:
+   - Total billable vs non-billable hours (and why hours are non-billable).
+   - Duplicate entries found (if any).
+   - Role mismatches that could cause invoice disputes.
+   - Projects with the highest non-billable hour ratio.
+
+Do NOT call any other tools. Your output is saved automatically for downstream agents.
+""".strip()
+
+_LEAKAGE_PROMPT = """
+You are the Revenue Leakage Agent in a multi-agent revenue intelligence pipeline.
+
+Your job: Identify all forms of missed or incorrect billing so that revenue can be recovered
+before the invoice is sent. Every finding should be concrete, actionable, and financially
+quantified where possible.
+
+Prerequisites: reconcile_work and extract_slack_signals must have run already.
+
+Steps:
+1. Call detect_revenue_leakage to find all leakage signals.
+2. Analyse the findings by type:
+   - rate_mismatch: Who is being under-billed or over-billed and by how much?
+   - unlogged_work: Which Slack-evidenced work has no timesheet entry?
+   - cap_overage: Which users have logged beyond their monthly contract cap?
+   - scope_creep_untagged: Which informal scope expansions have no change order?
+3. Print a concise summary covering:
+   - Total estimated revenue at risk (USD).
+   - Top 3 leakage signals by financial impact.
+   - Any users who appear repeatedly across multiple leakage types.
+   - Recommended actions before invoicing (e.g., "Chase timesheet from X for Y date").
+
+Do NOT call any other tools. Your findings are saved automatically.
+""".strip()
+
+_COMPLIANCE_PROMPT = """
+You are the Compliance & Risk Agent in a multi-agent revenue intelligence pipeline.
+
+Your job: Identify every contract and policy violation that could cause invoice rejection,
+client disputes, or legal/audit risk. Every finding must be resolved before the invoice is sent.
+
+Prerequisites: reconcile_work and build_contract_model must have run already.
+
+Steps:
+1. Call run_compliance_checks to evaluate all compliance rules.
+2. Analyse findings by severity:
+   - CRITICAL: must be fixed before invoicing (leave-day billing, deactivated employee, archived project).
+   - WARNING: should be reviewed and documented (overtime, public holiday, unassigned project).
+3. Print a concise summary covering:
+   - CRITICAL blocking issues that prevent invoice from being sent.
+   - WARNING items that need documentation or approval records.
+   - Which contract clauses are being violated (e.g., "overtime_requires_approval").
+   - Recommended resolution steps for each finding type.
+
+Do NOT call any other tools. Your findings are saved automatically.
+""".strip()
+
+_INVOICE_PROMPT = """
+You are the Invoice Drafting Agent in a multi-agent revenue intelligence pipeline.
+
+Your job: Produce a clean, accurate invoice draft from the billable work units, applying
+contract rates and flagging any line items that need human review before sending.
+
+Prerequisites: reconcile_work and build_contract_model must have run already.
+
+Steps:
+1. Call build_invoice_draft to generate invoice line items.
+2. Review the draft:
+   - Grand total and per-project subtotals.
+   - Lines with rate_fallback flag: contract rate unavailable — verify rate is correct.
+   - Lines with role_mismatch flag: user not in contract team — needs approval before billing.
+   - Any warnings about missing rate data.
+3. Print a concise summary covering:
+   - Invoice grand total and billable hours total.
+   - Project-level breakdown of subtotals.
+   - Lines requiring human review before sending.
+   - Any adjustments recommended based on leakage or compliance findings.
+
+Do NOT call any other tools. Your draft is saved automatically.
+""".strip()
+
+
+def _review_prompt(
+    norm_summary:       str,
+    contract_summary:   str,
+    slack_summary:      str,
+    recon_summary:      str,
+    leakage_summary:    str,
+    compliance_summary: str,
+    invoice_summary:    str,
+) -> str:
+    return f"""
+You are the Review & Alert Agent — the final agent in the revenue intelligence pipeline.
+
+Your job: Synthesise all upstream agent outputs into a final actionable report that a billing
+manager can act on immediately. Generate the HTML report with key takeaways, then print a
+plain-text executive summary.
+
+UPSTREAM AGENT OUTPUTS
+======================
+[Normalization Agent]
+{norm_summary}
+
+[Contract Agent]
+{contract_summary}
+
+[Context Mining Agent]
+{slack_summary}
+
+[Reconciliation Agent]
+{recon_summary}
+
+[Revenue Leakage Agent]
+{leakage_summary}
+
+[Compliance Agent]
+{compliance_summary}
+
+[Invoice Drafting Agent]
+{invoice_summary}
+
+STEPS
+=====
+1. First run the legacy audit pipeline to capture all 15 rule-based checks:
+   a. Call load_timesheet_data
+   b. Call run_audit_checks
+
+2. Synthesise all findings (legacy + intelligence layer) into 5–7 key takeaways.
+   Each takeaway must be specific, concise, and actionable. Examples:
+     - "3 users logged hours on public holidays — requires client approval or reversal."
+     - "rishabh.a billed Entain-CRM but is NOT in the SOW team — dispute risk."
+     - "Estimated $X revenue at risk from rate mismatches and unlogged Slack work."
+     - "Invoice draft total: $Y — 2 lines flagged for role mismatch review."
+
+3. Call generate_full_report with key_takeaways_json set to a JSON array of your 5–7 takeaways.
+
+4. Print a plain-text executive summary covering:
+   - Invoice readiness (READY / BLOCKED / NEEDS REVIEW) with reason.
+   - Top 3 revenue risks to address before sending the invoice.
+   - Top 3 compliance blockers.
+   - Any quick wins (e.g., timesheets that can be easily recovered or corrected).
+""".strip()
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator
+# ---------------------------------------------------------------------------
+
+async def main() -> None:
+    print(f"[orchestrator] Starting Revenue Intelligence Pipeline", flush=True)
+    print(f"[orchestrator] Model: {MODEL}  |  Data: {DATA_DIR}  |  Output: {OUT_DIR}", flush=True)
+
+    # ------------------------------------------------------------------ #
+    # Phase 1: Parallel — Normalization, Contract, Slack Mining           #
+    # ------------------------------------------------------------------ #
+    print("\n[Phase 1] Running Normalization, Contract, and Slack agents in parallel...", flush=True)
+
+    norm_task       = asyncio.create_task(_run_agent("Normalization Agent",    _NORMALIZATION_PROMPT))
+    contract_task   = asyncio.create_task(_run_agent("Contract Agent",         _CONTRACT_PROMPT))
+    slack_task      = asyncio.create_task(_run_agent("Context Mining Agent",   _SLACK_MINING_PROMPT))
+
+    norm_summary, contract_summary, slack_summary = await asyncio.gather(
+        norm_task, contract_task, slack_task
+    )
+
+    # ------------------------------------------------------------------ #
+    # Phase 2: Reconciliation (needs Phase 1 state)                       #
+    # ------------------------------------------------------------------ #
+    print("\n[Phase 2] Running Reconciliation agent...", flush=True)
+    recon_summary = await _run_agent("Reconciliation Agent", _RECONCILIATION_PROMPT)
+
+    # ------------------------------------------------------------------ #
+    # Phase 3: Parallel — Revenue Leakage + Compliance                    #
+    # ------------------------------------------------------------------ #
+    print("\n[Phase 3] Running Leakage and Compliance agents in parallel...", flush=True)
+
+    leakage_task    = asyncio.create_task(_run_agent("Revenue Leakage Agent", _LEAKAGE_PROMPT))
+    compliance_task = asyncio.create_task(_run_agent("Compliance Agent",      _COMPLIANCE_PROMPT))
+
+    leakage_summary, compliance_summary = await asyncio.gather(leakage_task, compliance_task)
+
+    # ------------------------------------------------------------------ #
+    # Phase 4: Invoice Drafting                                           #
+    # ------------------------------------------------------------------ #
+    print("\n[Phase 4] Running Invoice Drafting agent...", flush=True)
+    invoice_summary = await _run_agent("Invoice Drafting Agent", _INVOICE_PROMPT)
+
+    # ------------------------------------------------------------------ #
+    # Phase 5: Review & Alert                                             #
+    # ------------------------------------------------------------------ #
+    print("\n[Phase 5] Running Review & Alert agent...", flush=True)
+    review_prompt = _review_prompt(
+        norm_summary, contract_summary, slack_summary,
+        recon_summary, leakage_summary, compliance_summary, invoice_summary,
+    )
+    await _run_agent("Review & Alert Agent", review_prompt, max_turns=10)
+
+    print("\n[orchestrator] Pipeline complete.", flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Entry point with retry on API overload
+# ---------------------------------------------------------------------------
 
 def _is_overloaded(e: Exception) -> bool:
     msg = str(e)
     return "529" in msg or "overloaded" in msg.lower()
 
 
-if __name__ == "__main__":
+def _report_exists() -> bool:
+    """True if a report file was written today (success heuristic)."""
     from datetime import date as _date
+    today = _date.today().isoformat()
+    report_dir = os.path.join(OUT_DIR, f"audit_{today}")
+    # Check any file starting with "audit_" and ending today
+    out = os.path.join(OUT_DIR)
+    if os.path.isdir(out):
+        for fname in os.listdir(out):
+            if fname.startswith("audit_") and today in fname and fname.endswith(".html"):
+                return True
+    return False
 
+
+if __name__ == "__main__":
     MAX_RETRIES = 3
-    delay = 30  # seconds, doubles each retry
+    delay = 30
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             anyio.run(main)
-            break  # success
+            break
         except Exception as e:
-            # The Agent SDK raises when the CLI exits non-zero, which can happen
-            # even after a successful run (e.g. during MCP server teardown).
-            # Treat as success if the report file was actually written.
-            today = _date.today().isoformat()
-            report = os.path.join(os.environ.get("OUT_DIR", "output"), f"audit_{today}.html")
-            if "Command failed" in str(e) and os.path.exists(report):
-                print(f"[audit-agent-sdk] Report written to {report}", flush=True)
+            if "Command failed" in str(e) and _report_exists():
+                print(f"[orchestrator] Report written successfully.", flush=True)
                 sys.exit(0)
 
             if _is_overloaded(e) and attempt < MAX_RETRIES:
                 print(
-                    f"[audit-agent-sdk] API overloaded (attempt {attempt}/{MAX_RETRIES}),"
-                    f" retrying in {delay}s...",
+                    f"[orchestrator] API overloaded (attempt {attempt}/{MAX_RETRIES}), "
+                    f"retrying in {delay}s...",
                     flush=True,
                 )
                 time.sleep(delay)
                 delay *= 2
                 continue
 
-            print(f"[audit-agent-sdk] Fatal: {e}", file=sys.stderr)
+            print(f"[orchestrator] Fatal: {e}", file=sys.stderr)
             sys.exit(1)
