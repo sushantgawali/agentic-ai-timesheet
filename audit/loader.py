@@ -326,6 +326,50 @@ def _parse_sow_text(text: str) -> dict:
     return result
 
 
+def read_pdf_text(path: str) -> str:
+    """
+    Extract plain text from a PDF file using pypdf.
+    Returns an empty string on error or if pypdf is not installed.
+    """
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(path)
+        pages = []
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                pages.append(text.strip())
+        return "\n\n".join(pages)
+    except Exception:
+        return ""
+
+
+def load_guidelines_documents() -> list[dict]:
+    """
+    Read all policy/guideline documents from DATA_DIR/documents/guidelines/.
+    Supports .pdf (via pypdf) and .docx (via stdlib zipfile).
+
+    Returns a list of dicts:
+        {filename, path, type ("pdf"|"docx"), text}
+    """
+    guidelines_dir = os.path.join(DATA_DIR, "documents", "guidelines")
+    if not os.path.isdir(guidelines_dir):
+        return []
+    docs = []
+    for entry in sorted(os.listdir(guidelines_dir)):
+        lower = entry.lower()
+        path = os.path.join(guidelines_dir, entry)
+        if not os.path.isfile(path):
+            continue
+        if lower.endswith(".pdf"):
+            text = read_pdf_text(path)
+            docs.append({"filename": entry, "path": path, "type": "pdf", "text": text})
+        elif lower.endswith(".docx"):
+            text = read_docx_text(path)
+            docs.append({"filename": entry, "path": path, "type": "docx", "text": text})
+    return docs
+
+
 def load_sow_documents() -> list[dict]:
     """
     Read and parse all .docx files from DATA_DIR/documents/sow/.
@@ -484,6 +528,9 @@ def load_all() -> dict:
     # --- SOW documents ---
     sow_data = load_sow_documents()
 
+    # --- Guidelines documents ---
+    guidelines_data = load_guidelines_documents()
+
     _cache = {
         "ts":               ts,
         "emp_rate":         emp_rate,
@@ -504,6 +551,8 @@ def load_all() -> dict:
         "proj_actual_cost":  dict(proj_actual_cost),
         # SOW documents
         "sow_data":          sow_data,
+        # Guidelines documents
+        "guidelines_data":   guidelines_data,
         # Discovery metadata
         "discovered_files": discovered,
         "role_map":         role_map,

@@ -19,7 +19,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from audit.checks import run_all
-from audit.loader import load_all, discover_csv_files, load_sow_documents, DATA_VERSION
+from audit.loader import load_all, discover_csv_files, load_sow_documents, load_guidelines_documents, DATA_VERSION
 from audit.report import generate
 
 app = Server("audit-tools")
@@ -40,6 +40,17 @@ async def list_tools() -> list[Tool]:
                 "contractual rate USD/hr, monthly hours commitment). "
                 "Use this to cross-reference who should be billing to each project, at what "
                 "rate, and for how many hours — then compare against timesheet actuals."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
+            name="read_guidelines_documents",
+            description=(
+                "Parse all HR policy and guideline documents (PDF and DOCX) from the "
+                "documents/guidelines/ directory. Returns the filename and full extracted text "
+                "for each document. Use this to understand company policies on leave, holidays, "
+                "timesheets, and billing rules — then cross-reference against the audit findings "
+                "to identify policy violations and include relevant policy context in takeaways."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
@@ -105,7 +116,26 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps({"error": msg}))]
 
     try:
-        if name == "read_sow_documents":
+        if name == "read_guidelines_documents":
+            docs = load_guidelines_documents()
+            return ok({
+                "guidelines_count": len(docs),
+                "guidelines": [
+                    {
+                        "filename": d["filename"],
+                        "type":     d["type"],
+                        "text":     d["text"],
+                    }
+                    for d in docs
+                ],
+                "hint": (
+                    "Use these policy documents to validate audit findings against company rules. "
+                    "E.g. check if leave types match policy, if public holidays align with the "
+                    "holidays guideline, and if timesheet fields comply with the timesheets guideline."
+                ),
+            })
+
+        elif name == "read_sow_documents":
             sow_docs = load_sow_documents()
             ctx = load_all()
             # Attach actuals per project so Claude can compare in one call

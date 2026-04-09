@@ -50,7 +50,7 @@ async def main() -> None:
             }
         },
         permission_mode="bypassPermissions",
-        max_turns=10,
+        max_turns=12,
     )
 
     print(f"[audit-agent-sdk] Starting with model={model}", flush=True)
@@ -59,20 +59,27 @@ async def main() -> None:
         prompt=(
             "Run a full timesheet audit using the audit MCP tools: "
             "1. Call discover_data_files to see all CSV files present and their inferred roles. "
-            "2. Call read_sow_documents to load all Statement of Work contracts. "
+            "2. Call read_guidelines_documents to load all HR policy and guideline documents. "
+            "   Note the rules around leave types, public holidays, timesheet field requirements, "
+            "   and any billing restrictions — use these as the compliance baseline throughout. "
+            "3. Call read_sow_documents to load all Statement of Work contracts. "
             "   For each SOW, note the contracted team members, their rates, and monthly hours. "
             "   Cross-reference against the project_actuals returned: identify projects where "
             "   actual hours or cost diverge significantly from contract expectations. "
             "   Also flag if anyone is billing to a project not listed in their SOW team. "
-            "3. Call load_timesheet_data to load and index all timesheet data. "
-            "4. Call run_audit_checks to execute all audit checks. "
-            "5. Analyse the findings, then call generate_html_report passing "
+            "4. Call load_timesheet_data to load and index all timesheet data. "
+            "5. Call run_audit_checks to execute all audit checks. "
+            "6. Analyse the findings (including policy violations from guidelines and SOW "
+            "   divergences), then call generate_html_report passing "
             "key_takeaways_json as a JSON array string of 3-5 concise, specific "
-            "insights covering: critical billing anomalies, SOW vs actual divergences, "
+            "insights covering: critical billing anomalies, policy violations (referencing "
+            "specific guideline rules where relevant), SOW vs actual divergences, "
             "and projects near or over budget. "
             'Example: \'["Entain-CRM is 32% over its contracted hours budget.", '
-            '"rishabh.a billed Provus but is not listed in the Provus SOW team."]\' '
-            "Then print a brief plain-text summary including SOW findings and budget status."
+            '"rishabh.a billed Provus but is not listed in the Provus SOW team.", '
+            '"3 employees billed on public holidays contrary to the Holidays guideline."]\' '
+            "Then print a brief plain-text summary including guidelines findings, SOW findings, "
+            "and budget status."
         ),
         options=options,
     ):
