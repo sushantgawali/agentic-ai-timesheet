@@ -164,7 +164,7 @@ def _section(title: str, count: int, sev_color: str, body_html: str, section_id:
       <span style="font-size:1rem;font-weight:700;color:#111827">
         {esc(title)}{count_badge}
       </span>
-      <span style="font-size:0.75rem;color:#9ca3af">click to collapse ▲</span>
+      <span style="font-size:0.75rem;color:#9ca3af">▲ collapse</span>
     </summary>
     <div style="margin-top:16px">{body_html}</div>
   </details>
@@ -172,39 +172,47 @@ def _section(title: str, count: int, sev_color: str, body_html: str, section_id:
 
 
 # ---------------------------------------------------------------------------
-# Finding card
+# Table + accordion helpers
 # ---------------------------------------------------------------------------
 
-def _finding_card(
-    severity:    str,
-    title:       str,
-    lines:       list,      # list of detail strings
-    sources:     list,      # list of source file strings
-    action:      str = "",
-    row_ref:     str = "",  # e.g. "row 42"
-) -> str:
-    bg     = SEV_BG.get(severity, "#fff")
-    border = SEV_BORDER.get(severity, "#e5e7eb")
-    detail_html = "".join(
-        f'<div style="font-size:0.82rem;color:#374151;margin-top:4px">{esc(line)}</div>'
-        for line in lines if line
+def _table_wrap(headers: list, rows_html: str) -> str:
+    """Scrollable table with standard column headers."""
+    th_style = (
+        "padding:8px 12px;font-size:0.7rem;text-transform:uppercase;"
+        "letter-spacing:.04em;color:#6b7280;border-bottom:2px solid #e5e7eb;"
+        "white-space:nowrap;text-align:left;background:#f9fafb"
     )
-    row_html = (
-        f'<span style="font-size:0.7rem;color:#9ca3af;margin-left:8px">({esc(row_ref)})</span>'
-        if row_ref else ""
-    )
+    th_cells = "".join(f'<th style="{th_style}">{esc(h)}</th>' for h in headers)
     return (
-        f'<div style="background:{bg};border:1px solid {border};border-radius:6px;'
-        f'padding:12px 14px;margin-bottom:8px">'
-        f'<div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap">'
-        f'{badge(severity)}'
+        f'<div style="overflow-x:auto;margin-top:10px;border:1px solid #e5e7eb;border-radius:6px">'
+        f'<table style="width:100%;border-collapse:collapse;font-size:0.82rem">'
+        f'<thead><tr>{th_cells}</tr></thead>'
+        f'<tbody>{rows_html}</tbody>'
+        f'</table></div>'
+    )
+
+
+def _accordion(title: str, count: int, sev: str, body_html: str, open_: bool = False) -> str:
+    """Inner accordion item — a collapsible finding group within a section."""
+    color  = SEV_COLOR.get(sev, "#374151")
+    bg     = SEV_BG.get(sev, "#f9fafb")
+    border = SEV_BORDER.get(sev, "#e5e7eb")
+    count_pill = (
+        f'<span style="background:{color};color:#fff;border-radius:10px;'
+        f'padding:1px 8px;font-size:0.72rem;font-weight:700;margin-left:6px">{count}</span>'
+    )
+    open_attr = " open" if open_ else ""
+    return (
+        f'<details{open_attr} style="border:1px solid {border};border-radius:6px;'
+        f'margin-bottom:8px;background:{bg}">'
+        f'<summary style="cursor:pointer;list-style:none;padding:10px 14px;'
+        f'display:flex;align-items:center;gap:8px;user-select:none">'
+        f'{badge(sev)}'
         f'<span style="font-weight:600;font-size:0.87rem;color:#111827">{esc(title)}</span>'
-        f'{row_html}'
-        f'</div>'
-        f'{detail_html}'
-        f'{_source_chips(sources)}'
-        f'{_action_hint(action) if action else ""}'
-        f'</div>'
+        f'{count_pill}'
+        f'</summary>'
+        f'<div style="padding:0 14px 14px">{body_html}</div>'
+        f'</details>'
     )
 
 
@@ -213,11 +221,7 @@ def _finding_card(
 # ---------------------------------------------------------------------------
 
 def _render_legacy_issues(issues: list, hours_issues: list) -> str:
-    """
-    Render legacy check findings as grouped cards.
-    Groups: CRITICAL first, then WARNING, then INFO.
-    Skips CHECK-13 (shown in its own section).
-    """
+    """Render legacy check findings grouped by check type as accordion + table."""
     from audit.checks import LABELS
 
     by_check = defaultdict(list)
@@ -229,108 +233,73 @@ def _render_legacy_issues(issues: list, hours_issues: list) -> str:
     if not by_check:
         return '<p style="color:#6b7280;font-style:italic">No issues found.</p>'
 
-    # Order checks by severity then count
     SEV_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
-    check_order = sorted(
-        by_check.keys(),
-        key=lambda c: (SEV_ORDER.get(issues[0]["severity"] if by_check[c] else "INFO", 2),
-                       -len(by_check[c]))
-    )
-    # Re-sort with actual severity of first issue per check
     check_sev = {}
     for c, items in by_check.items():
         sevs = Counter(i["severity"] for i in items)
-        if sevs["CRITICAL"]:
-            check_sev[c] = "CRITICAL"
-        elif sevs["WARNING"]:
-            check_sev[c] = "WARNING"
-        else:
-            check_sev[c] = "INFO"
+        check_sev[c] = "CRITICAL" if sevs["CRITICAL"] else ("WARNING" if sevs["WARNING"] else "INFO")
 
     check_order = sorted(by_check.keys(), key=lambda c: (SEV_ORDER[check_sev[c]], -len(by_check[c])))
 
+    td = "padding:7px 12px;border-bottom:1px solid #f3f4f6;vertical-align:top"
     parts = []
-    for check in check_order:
-        items = by_check[check]
-        label = LABELS.get(check, check)
-        sev   = check_sev[check]
-        color = SEV_COLOR[sev]
+    for i, check in enumerate(check_order):
+        items   = by_check[check]
+        label   = LABELS.get(check, check)
+        sev     = check_sev[check]
         sources = CHECK_SOURCES.get(check, ["kimai_timesheets.csv"])
         action  = CHECK_ACTIONS.get(check, "")
 
-        # Group header
-        parts.append(
-            f'<div style="font-size:0.78rem;font-weight:700;color:{color};'
-            f'text-transform:uppercase;letter-spacing:.06em;margin:16px 0 6px">'
-            f'{esc(check)} — {esc(label)} '
-            f'<span style="background:{SEV_BG[sev]};color:{color};border-radius:10px;'
-            f'padding:1px 8px;font-size:0.7rem">{len(items)}</span></div>'
-        )
-
-        # Cap cards at 30 per check to avoid an enormous page
-        for issue in items[:30]:
-            # Extract row reference from detail field
-            row_ref = ""
+        rows_html = ""
+        for issue in items[:50]:
             detail = issue.get("detail", "")
-            if detail.startswith("Row "):
-                row_ref = detail.split(":")[0]  # "Row 42"
-            elif "Rows " in detail:
-                row_ref = detail.split(":")[0]  # "Rows 12&15"
-
-            lines = [issue.get("brief", "")]
-            if detail and detail != issue.get("brief", ""):
-                # Show detail but strip the leading "Row N: " prefix (redundant with row_ref chip)
-                clean = detail
-                if clean.startswith("Row ") and ": " in clean:
-                    clean = clean.split(": ", 1)[1]
-                elif clean.startswith("Rows ") and ": " in clean:
-                    clean = clean.split(": ", 1)[1]
-                if clean != issue.get("brief", ""):
-                    lines.append(clean)
-
-            title = f"{issue.get('user', '')} · {issue.get('date', '')} · {issue.get('project', '')}".strip(" ·")
-            parts.append(_finding_card(
-                severity=issue["severity"],
-                title=title,
-                lines=lines,
-                sources=sources,
-                action=action,
-                row_ref=row_ref,
-            ))
-
-        if len(items) > 30:
-            parts.append(
-                f'<div style="font-size:0.78rem;color:#9ca3af;padding:6px 0 4px">'
-                f'… and {len(items) - 30} more {label} issues (not shown).</div>'
+            clean  = detail
+            if clean.startswith("Row ") and ": " in clean:
+                clean = clean.split(": ", 1)[1]
+            elif clean.startswith("Rows ") and ": " in clean:
+                clean = clean.split(": ", 1)[1]
+            sev_i = issue.get("severity", sev)
+            rows_html += (
+                f'<tr>'
+                f'<td style="{td}">{badge(sev_i)}</td>'
+                f'<td style="{td}">{esc(issue.get("user",""))}</td>'
+                f'<td style="{td}">{esc(issue.get("date",""))}</td>'
+                f'<td style="{td}">{esc(issue.get("project","") or "")}</td>'
+                f'<td style="{td};color:#374151">{esc(clean or issue.get("brief",""))}</td>'
+                f'</tr>'
+            )
+        if len(items) > 50:
+            rows_html += (
+                f'<tr><td colspan="5" style="{td};color:#9ca3af;font-style:italic">'
+                f'… and {len(items)-50} more findings.</td></tr>'
             )
 
-    # Hours accuracy summary (CHECK-13)
+        table = _table_wrap(["Sev", "User", "Date", "Project", "Detail"], rows_html)
+        body  = (_action_hint(action) if action else "") + _source_chips(sources) + table
+        parts.append(_accordion(f"{check} — {label}", len(items), sev, body, open_=(i == 0)))
+
+    # CHECK-13 (Hours accuracy)
     c13 = [i for i in issues if i["check"] == "CHECK-13"]
-    if c13 or hours_issues:
-        parts.append(
-            f'<div style="font-size:0.78rem;font-weight:700;color:#2563eb;'
-            f'text-transform:uppercase;letter-spacing:.06em;margin:16px 0 6px">'
-            f'CHECK-13 — HOURS FIELD ACCURACY '
-            f'<span style="background:#eff6ff;color:#2563eb;border-radius:10px;'
-            f'padding:1px 8px;font-size:0.7rem">{len(c13)}</span></div>'
-        )
-        for issue in c13[:20]:
+    if c13:
+        rows_html = ""
+        for issue in c13[:50]:
             detail = issue.get("detail", "")
-            row_ref = detail.split(":")[0] if detail.startswith("Row ") else ""
-            clean = detail.split(": ", 1)[1] if ": " in detail else detail
-            parts.append(_finding_card(
-                severity="INFO",
-                title=f"{issue.get('user', '')} · {issue.get('date', '')}",
-                lines=[issue.get("brief", ""), clean if clean != issue.get("brief", "") else ""],
-                sources=CHECK_SOURCES["CHECK-13"],
-                action=CHECK_ACTIONS["CHECK-13"],
-                row_ref=row_ref,
-            ))
-        if len(c13) > 20:
-            parts.append(
-                f'<div style="font-size:0.78rem;color:#9ca3af;padding:6px 0 4px">'
-                f'… and {len(c13) - 20} more hours-accuracy issues.</div>'
+            clean  = detail.split(": ", 1)[1] if ": " in detail else detail
+            rows_html += (
+                f'<tr>'
+                f'<td style="{td}">{esc(issue.get("user",""))}</td>'
+                f'<td style="{td}">{esc(issue.get("date",""))}</td>'
+                f'<td style="{td};color:#374151">{esc(clean or issue.get("brief",""))}</td>'
+                f'</tr>'
             )
+        if len(c13) > 50:
+            rows_html += (
+                f'<tr><td colspan="3" style="{td};color:#9ca3af;font-style:italic">'
+                f'… and {len(c13)-50} more findings.</td></tr>'
+            )
+        table = _table_wrap(["User", "Date", "Detail"], rows_html)
+        body  = _action_hint(CHECK_ACTIONS["CHECK-13"]) + _source_chips(CHECK_SOURCES["CHECK-13"]) + table
+        parts.append(_accordion("CHECK-13 — Hours Field Accuracy", len(c13), "INFO", body))
 
     return "".join(parts)
 
@@ -340,7 +309,6 @@ def _render_leakage(leakage: dict) -> str:
     if not findings:
         return '<p style="color:#6b7280;font-style:italic">No leakage signals detected.</p>'
 
-    # Group by type
     by_type = defaultdict(list)
     for f in findings:
         by_type[f["type"]].append(f)
@@ -354,50 +322,42 @@ def _render_leakage(leakage: dict) -> str:
         ),
     )
 
+    td = "padding:7px 12px;border-bottom:1px solid #f3f4f6;vertical-align:top"
     parts = []
-    for ftype in type_order:
-        items = by_type[ftype]
-        label = ftype.replace("_", " ").title()
-        sev   = items[0].get("severity", "INFO")
+    for i, ftype in enumerate(type_order):
+        items        = by_type[ftype]
+        label        = ftype.replace("_", " ").title()
+        sev          = items[0].get("severity", "INFO")
         total_impact = sum(f.get("estimated_impact") or 0 for f in items)
-        impact_str   = f" — ${total_impact:,.0f} at risk" if total_impact else ""
-        color = SEV_COLOR.get(sev, "#6b7280")
+        sources      = LEAKAGE_SOURCES.get(ftype, ["kimai_timesheets.csv"])
+        action       = LEAKAGE_ACTIONS.get(ftype, "Review and resolve before invoicing.")
 
-        parts.append(
-            f'<div style="font-size:0.78rem;font-weight:700;color:{color};'
-            f'text-transform:uppercase;letter-spacing:.06em;margin:16px 0 6px">'
-            f'{esc(label)} '
-            f'<span style="background:{SEV_BG.get(sev, "#f9fafb")};color:{color};border-radius:10px;'
-            f'padding:1px 8px;font-size:0.7rem">{len(items)}</span>'
-            f'<span style="font-weight:500;font-size:0.75rem;color:{color}">{impact_str}</span></div>'
-        )
-
-        sources = LEAKAGE_SOURCES.get(ftype, ["kimai_timesheets.csv"])
-        action  = LEAKAGE_ACTIONS.get(ftype, "Review and resolve before invoicing.")
-
-        for f in items[:25]:
-            user    = f.get("user", "")
-            date    = f.get("date", "") or ""
-            proj    = f.get("project", "") or ""
-            title   = " · ".join(x for x in [user, date, proj] if x)
-            impact  = f.get("estimated_impact")
-            impact_line = f"Estimated impact: ${impact:,.2f}" if impact else ""
-            subtype = f.get("subtype", "")
-            subtype_line = f"Sub-type: {subtype}" if subtype else ""
-
-            parts.append(_finding_card(
-                severity=sev,
-                title=title,
-                lines=[f.get("description", ""), impact_line, subtype_line],
-                sources=sources,
-                action=action,
-            ))
-
-        if len(items) > 25:
-            parts.append(
-                f'<div style="font-size:0.78rem;color:#9ca3af;padding:4px 0">'
-                f'… and {len(items) - 25} more {label} findings.</div>'
+        rows_html = ""
+        for f in items[:50]:
+            impact     = f.get("estimated_impact")
+            impact_str = f"${impact:,.2f}" if impact else "—"
+            rows_html += (
+                f'<tr>'
+                f'<td style="{td};font-weight:600">{esc(f.get("user",""))}</td>'
+                f'<td style="{td}">{esc(f.get("date","") or "")}</td>'
+                f'<td style="{td}">{esc(f.get("project","") or "")}</td>'
+                f'<td style="{td};color:#374151">{esc(f.get("description",""))}</td>'
+                f'<td style="{td};text-align:right;font-weight:600;color:#dc2626">{impact_str}</td>'
+                f'</tr>'
             )
+        if len(items) > 50:
+            rows_html += (
+                f'<tr><td colspan="5" style="{td};color:#9ca3af;font-style:italic">'
+                f'… and {len(items)-50} more findings.</td></tr>'
+            )
+
+        title_str = f"{label}"
+        if total_impact:
+            title_str += f" — ${total_impact:,.0f} at risk"
+
+        table = _table_wrap(["User", "Date", "Project", "Description", "Impact (USD)"], rows_html)
+        body  = _action_hint(action) + _source_chips(sources) + table
+        parts.append(_accordion(title_str, len(items), sev, body, open_=(i == 0)))
 
     return "".join(parts)
 
@@ -417,45 +377,37 @@ def _render_compliance(compliance: dict) -> str:
         key=lambda t: (SEV_ORDER.get(by_type[t][0].get("severity", "INFO"), 2), -len(by_type[t])),
     )
 
+    td = "padding:7px 12px;border-bottom:1px solid #f3f4f6;vertical-align:top"
     parts = []
-    for ftype in type_order:
-        items = by_type[ftype]
-        sev   = items[0].get("severity", "CRITICAL")
-        label = ftype.replace("_", " ").title()
-        color = SEV_COLOR.get(sev, "#6b7280")
-
-        parts.append(
-            f'<div style="font-size:0.78rem;font-weight:700;color:{color};'
-            f'text-transform:uppercase;letter-spacing:.06em;margin:16px 0 6px">'
-            f'{esc(label)} '
-            f'<span style="background:{SEV_BG.get(sev, "#f9fafb")};color:{color};border-radius:10px;'
-            f'padding:1px 8px;font-size:0.7rem">{len(items)}</span></div>'
-        )
-
+    for i, ftype in enumerate(type_order):
+        items   = by_type[ftype]
+        sev     = items[0].get("severity", "CRITICAL")
+        label   = ftype.replace("_", " ").title()
         sources = COMPLIANCE_SOURCES.get(ftype, ["kimai_timesheets.csv"])
         action  = COMPLIANCE_ACTIONS.get(ftype, "Resolve before sending invoice.")
         clause  = items[0].get("contract_clause")
         if clause:
             sources = sources + [f"Policy: {clause}"]
 
-        for f in items[:25]:
-            user  = f.get("user", "")
-            date  = f.get("date", "") or ""
-            proj  = f.get("project", "") or ""
-            title = " · ".join(x for x in [user, date, proj] if x)
-            parts.append(_finding_card(
-                severity=sev,
-                title=title,
-                lines=[f.get("description", "")],
-                sources=sources,
-                action=action,
-            ))
-
-        if len(items) > 25:
-            parts.append(
-                f'<div style="font-size:0.78rem;color:#9ca3af;padding:4px 0">'
-                f'… and {len(items) - 25} more {label} findings.</div>'
+        rows_html = ""
+        for f in items[:50]:
+            rows_html += (
+                f'<tr>'
+                f'<td style="{td};font-weight:600">{esc(f.get("user",""))}</td>'
+                f'<td style="{td}">{esc(f.get("date","") or "")}</td>'
+                f'<td style="{td}">{esc(f.get("project","") or "")}</td>'
+                f'<td style="{td};color:#374151">{esc(f.get("description",""))}</td>'
+                f'</tr>'
             )
+        if len(items) > 50:
+            rows_html += (
+                f'<tr><td colspan="4" style="{td};color:#9ca3af;font-style:italic">'
+                f'… and {len(items)-50} more findings.</td></tr>'
+            )
+
+        table = _table_wrap(["User", "Date", "Project", "Description"], rows_html)
+        body  = _action_hint(action) + _source_chips(sources) + table
+        parts.append(_accordion(label, len(items), sev, body, open_=(i == 0)))
 
     return "".join(parts)
 
@@ -465,29 +417,32 @@ def _render_slack_unlogged(slack: dict) -> str:
     if not unlogged:
         return '<p style="color:#6b7280;font-style:italic">No unlogged Slack work signals found.</p>'
 
-    rows = []
+    td = "padding:7px 12px;border-bottom:1px solid #f3f4f6;vertical-align:top"
+    rows_html = ""
     for s in unlogged[:60]:
-        channel = s.get("channel", "")
-        channel_str = f"#{channel}" if channel else ""
-        rows.append(
-            f'<div style="border:1px solid #e5e7eb;border-radius:6px;padding:10px 14px;'
-            f'margin-bottom:6px;background:#fffbeb">'
-            f'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:4px">'
-            f'<strong style="font-size:0.85rem">{esc(s["user"])}</strong>'
-            f'<span style="font-size:0.78rem;color:#6b7280">{esc(s["date"])}</span>'
-            f'<span style="font-size:0.78rem;color:#9ca3af">{esc(channel_str)}</span>'
-            f'</div>'
-            f'<div style="font-size:0.82rem;color:#374151;font-style:italic">&ldquo;{esc(s["text"][:200])}&rdquo;</div>'
-            f'{_source_chips(["slack_activity.csv", "kimai_timesheets.csv (entry missing)"])}'
-            f'{_action_hint("Chase a timesheet entry from this user for " + s["date"] + ".")}'
-            f'</div>'
+        channel     = s.get("channel", "")
+        channel_str = f"#{channel}" if channel else "—"
+        rows_html += (
+            f'<tr>'
+            f'<td style="{td};font-weight:600">{esc(s["user"])}</td>'
+            f'<td style="{td}">{esc(s["date"])}</td>'
+            f'<td style="{td};color:#6b7280">{esc(channel_str)}</td>'
+            f'<td style="{td};color:#374151;font-style:italic">{esc(s["text"][:200])}</td>'
+            f'</tr>'
         )
     if len(unlogged) > 60:
-        rows.append(
-            f'<div style="font-size:0.78rem;color:#9ca3af;padding:4px 0">'
-            f'… and {len(unlogged) - 60} more unlogged work signals.</div>'
+        rows_html += (
+            f'<tr><td colspan="4" style="{td};color:#9ca3af;font-style:italic">'
+            f'… and {len(unlogged)-60} more signals.</td></tr>'
         )
-    return "".join(rows)
+
+    table = _table_wrap(["User", "Date", "Channel", "Slack Message"], rows_html)
+    body  = (
+        _action_hint("Chase a timesheet entry from each user for the listed date.")
+        + _source_chips(["slack_activity.csv", "kimai_timesheets.csv (entry missing)"])
+        + table
+    )
+    return _accordion(f"Unlogged Work Signals", len(unlogged), "WARNING", body, open_=True)
 
 
 def _render_invoice(invoice: dict) -> str:
@@ -580,7 +535,9 @@ def _render_budget(
         return '<p style="color:#6b7280;font-style:italic">No project budget data found (pm_projects.csv).</p>'
 
     all_projs = sorted(set(proj_budget_hours) | set(proj_actual_hours))
-    rows = []
+    td = "padding:8px 12px;border-bottom:1px solid #f3f4f6;vertical-align:middle"
+
+    rows_html = ""
     for proj in all_projs:
         bh  = proj_budget_hours.get(proj, 0)
         ah  = proj_actual_hours.get(proj, 0)
@@ -590,43 +547,54 @@ def _render_budget(
 
         if pct is None:
             status_html = '<span style="color:#9ca3af;font-size:0.75rem">no budget</span>'
-            bg = "#fff"
+            row_bg = ""
         elif pct > 100:
-            status_html = f'<span style="background:#dc2626;color:#fff;border-radius:4px;padding:1px 8px;font-size:0.72rem;font-weight:700">OVER {pct:.0f}%</span>'
-            bg = "#fef2f2"
+            status_html = (
+                f'<span style="background:#dc2626;color:#fff;border-radius:4px;'
+                f'padding:1px 8px;font-size:0.72rem;font-weight:700">OVER {pct:.0f}%</span>'
+            )
+            row_bg = "background:#fef2f2;"
         elif pct > 90:
-            status_html = f'<span style="background:#d97706;color:#fff;border-radius:4px;padding:1px 8px;font-size:0.72rem;font-weight:700">NEAR {pct:.0f}%</span>'
-            bg = "#fffbeb"
+            status_html = (
+                f'<span style="background:#d97706;color:#fff;border-radius:4px;'
+                f'padding:1px 8px;font-size:0.72rem;font-weight:700">NEAR {pct:.0f}%</span>'
+            )
+            row_bg = "background:#fffbeb;"
         else:
             status_html = f'<span style="color:#16a34a;font-size:0.78rem;font-weight:600">{pct:.0f}% used</span>'
-            bg = "#fff"
+            row_bg = ""
 
         h_delta = ah - bh
         c_delta = ac - bc
+        h_color = "#dc2626" if h_delta > 0 else "#16a34a"
+        c_color = "#dc2626" if c_delta > 0 else "#16a34a"
         h_delta_str = (
-            f'<span style="color:{"#dc2626" if h_delta > 0 else "#16a34a"};font-size:0.78rem">'
-            f'{"+" if h_delta > 0 else ""}{h_delta:,.1f}h</span>'
-        ) if bh else ""
+            f'<span style="color:{h_color}">{"+" if h_delta > 0 else ""}{h_delta:,.1f}h</span>'
+        ) if bh else "—"
         c_delta_str = (
-            f'<span style="color:{"#dc2626" if c_delta > 0 else "#16a34a"};font-size:0.78rem">'
-            f'{"+" if c_delta > 0 else ""}${c_delta:,.0f}</span>'
-        ) if bc else ""
+            f'<span style="color:{c_color}">{"+" if c_delta > 0 else ""}${c_delta:,.0f}</span>'
+        ) if bc else "—"
 
-        rows.append(
-            f'<div style="background:{bg};border:1px solid #e5e7eb;border-radius:6px;'
-            f'padding:10px 14px;margin-bottom:6px;display:flex;gap:12px;'
-            f'align-items:center;flex-wrap:wrap">'
-            f'<span style="font-weight:600;font-size:0.85rem;min-width:180px">{esc(proj)}</span>'
-            f'{status_html}'
-            f'<span style="font-size:0.78rem;color:#6b7280;margin-left:auto">'
-            f'{ah:,.1f}h / {bh:,.0f}h budget &nbsp; {h_delta_str}</span>'
-            f'<span style="font-size:0.78rem;color:#6b7280">'
-            f'${ac:,.0f} / ${bc:,.0f} budget &nbsp; {c_delta_str}</span>'
-            f'</div>'
+        rows_html += (
+            f'<tr style="{row_bg}">'
+            f'<td style="{td};font-weight:600">{esc(proj)}</td>'
+            f'<td style="{td};text-align:center">{status_html}</td>'
+            f'<td style="{td};text-align:right">{ah:,.1f}h</td>'
+            f'<td style="{td};text-align:right">{bh:,.0f}h</td>'
+            f'<td style="{td};text-align:right">{h_delta_str}</td>'
+            f'<td style="{td};text-align:right">${ac:,.0f}</td>'
+            f'<td style="{td};text-align:right">${bc:,.0f}</td>'
+            f'<td style="{td};text-align:right">{c_delta_str}</td>'
+            f'</tr>'
         )
 
+    table  = _table_wrap(
+        ["Project", "Status", "Actual Hrs", "Budget Hrs", "Δ Hours",
+         "Actual Cost", "Budget Cost", "Δ Cost"],
+        rows_html,
+    )
     source = _source_chips(["pm_projects.csv (budget_hours, budget_cost)", "kimai_timesheets.csv (actuals)"])
-    return "".join(rows) + source
+    return table + source
 
 
 def _render_data_quality(work_units_data) -> str:
@@ -634,11 +602,9 @@ def _render_data_quality(work_units_data) -> str:
     if not work_units_data:
         return ""
     qi = work_units_data.get("data_quality_issues", [])
-    qs = work_units_data.get("quality_summary", {})
     if not qi:
         return '<p style="color:#6b7280;font-style:italic">No data quality issues found.</p>'
 
-    # Group by flag
     by_flag = defaultdict(list)
     for issue in qi:
         by_flag[issue["flag"]].append(issue)
@@ -649,38 +615,34 @@ def _render_data_quality(work_units_data) -> str:
     ]
     ordered = [f for f in FLAG_PRIORITY if f in by_flag] + [f for f in by_flag if f not in FLAG_PRIORITY]
 
+    td = "padding:7px 12px;border-bottom:1px solid #f3f4f6;vertical-align:top"
     parts = []
-    for flag in ordered:
+    for i, flag in enumerate(ordered):
         items = by_flag[flag]
         label = flag.replace("_", " ").title()
-        count = len(items)
-        parts.append(
-            f'<div style="font-size:0.78rem;font-weight:700;color:#374151;'
-            f'text-transform:uppercase;letter-spacing:.06em;margin:14px 0 6px">'
-            f'{esc(label)} '
-            f'<span style="background:#f3f4f6;color:#374151;border-radius:10px;'
-            f'padding:1px 8px;font-size:0.7rem">{count}</span></div>'
-        )
-        # Show max 15 per flag
-        for issue in items[:15]:
-            parts.append(
-                f'<div style="border:1px solid #e5e7eb;border-radius:4px;padding:8px 12px;'
-                f'margin-bottom:4px;font-size:0.82rem;display:flex;gap:12px;flex-wrap:wrap">'
-                f'<strong>{esc(issue.get("user", ""))}</strong>'
-                f'<span style="color:#6b7280">{esc(issue.get("date", ""))}</span>'
-                f'<span style="color:#6b7280">{esc(issue.get("project", ""))}</span>'
-                f'<span style="color:#374151">{esc(issue.get("description", ""))}</span>'
-                f'<span style="color:#9ca3af;font-size:0.72rem">WU-{issue.get("work_unit_id","")}</span>'
-                f'</div>'
+
+        rows_html = ""
+        for issue in items[:50]:
+            rows_html += (
+                f'<tr>'
+                f'<td style="{td};font-weight:600">{esc(issue.get("user",""))}</td>'
+                f'<td style="{td}">{esc(issue.get("date",""))}</td>'
+                f'<td style="{td}">{esc(issue.get("project","") or "")}</td>'
+                f'<td style="{td};color:#374151">{esc(issue.get("description",""))}</td>'
+                f'<td style="{td};color:#9ca3af;font-size:0.72rem">WU-{esc(str(issue.get("work_unit_id","")))}</td>'
+                f'</tr>'
             )
-        if count > 15:
-            parts.append(
-                f'<div style="font-size:0.78rem;color:#9ca3af;padding:4px 0">'
-                f'… and {count - 15} more {label} issues.</div>'
+        if len(items) > 50:
+            rows_html += (
+                f'<tr><td colspan="5" style="{td};color:#9ca3af;font-style:italic">'
+                f'… and {len(items)-50} more {label} issues.</td></tr>'
             )
 
-    source = _source_chips(["kimai_timesheets.csv (all entries)"])
-    return "".join(parts) + source
+        table = _table_wrap(["User", "Date", "Project", "Description", "WU ID"], rows_html)
+        body  = _source_chips(["kimai_timesheets.csv"]) + table
+        parts.append(_accordion(label, len(items), "INFO", body, open_=(i == 0)))
+
+    return "".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -809,8 +771,6 @@ body {
   padding: 20px 24px; margin-bottom: 16px;
 }
 details summary::-webkit-details-marker { display: none; }
-details[open] summary span:last-child::after { content: " ▲"; }
-details:not([open]) summary span:last-child::after { content: " ▼"; }
 a { color: #2563eb; }
 """
 
