@@ -32,10 +32,8 @@ Optional env vars:
     OUT_DIR   (default: output)
     MODEL     (default: claude-haiku-4-5-20251001)
 """
-import asyncio
 import os
 import sys
-import time
 from pathlib import Path
 
 import anyio
@@ -310,20 +308,16 @@ UPSTREAM AGENT OUTPUTS
 
 STEPS
 =====
-1. First run the legacy audit pipeline to capture all 15 rule-based checks:
-   a. Call load_timesheet_data
-   b. Call run_audit_checks
-
-2. Synthesise all findings (legacy + intelligence layer) into 5–7 key takeaways.
+1. Synthesise all upstream findings into 5–7 key takeaways.
    Each takeaway must be specific, concise, and actionable. Examples:
      - "3 users logged hours on public holidays — requires client approval or reversal."
      - "rishabh.a billed Entain-CRM but is NOT in the SOW team — dispute risk."
      - "Estimated $X revenue at risk from rate mismatches and unlogged Slack work."
      - "Invoice draft total: $Y — 2 lines flagged for role mismatch review."
 
-3. Call generate_full_report with key_takeaways_json set to a JSON array of your 5–7 takeaways.
+2. Call generate_full_report with key_takeaways_json set to a JSON array of your 5–7 takeaways.
 
-4. Print a plain-text executive summary covering:
+3. Print a plain-text executive summary covering:
    - Invoice readiness (READY / BLOCKED / NEEDS REVIEW) with reason.
    - Top 3 revenue risks to address before sending the invoice.
    - Top 3 compliance blockers.
@@ -339,45 +333,36 @@ async def main() -> None:
     print(f"[orchestrator] Starting Revenue Intelligence Pipeline", flush=True)
     print(f"[orchestrator] Model: {MODEL}  |  Data: {DATA_DIR}  |  Output: {OUT_DIR}", flush=True)
 
-    # ------------------------------------------------------------------ #
-    # Phase 1: Parallel — Normalization, Contract, Slack Mining           #
-    # ------------------------------------------------------------------ #
-    print("\n[Phase 1] Running Normalization, Contract, and Slack agents in parallel...", flush=True)
+    # Phase 1a — Normalization
+    print("\n[Phase 1/3] Normalization Agent", flush=True)
+    norm_summary = await _run_agent("Normalization Agent", _NORMALIZATION_PROMPT)
 
-    norm_task       = asyncio.create_task(_run_agent("Normalization Agent",    _NORMALIZATION_PROMPT))
-    contract_task   = asyncio.create_task(_run_agent("Contract Agent",         _CONTRACT_PROMPT))
-    slack_task      = asyncio.create_task(_run_agent("Context Mining Agent",   _SLACK_MINING_PROMPT))
+    # Phase 1b — Contract Interpreter
+    print("\n[Phase 2/3] Contract Agent", flush=True)
+    contract_summary = await _run_agent("Contract Agent", _CONTRACT_PROMPT)
 
-    norm_summary, contract_summary, slack_summary = await asyncio.gather(
-        norm_task, contract_task, slack_task
-    )
+    # Phase 1c — Context Mining (Slack)
+    print("\n[Phase 3/3] Context Mining Agent", flush=True)
+    slack_summary = await _run_agent("Context Mining Agent", _SLACK_MINING_PROMPT)
 
-    # ------------------------------------------------------------------ #
-    # Phase 2: Reconciliation (needs Phase 1 state)                       #
-    # ------------------------------------------------------------------ #
-    print("\n[Phase 2] Running Reconciliation agent...", flush=True)
+    # Phase 2 — Reconciliation
+    print("\n[Phase 4] Reconciliation Agent", flush=True)
     recon_summary = await _run_agent("Reconciliation Agent", _RECONCILIATION_PROMPT)
 
-    # ------------------------------------------------------------------ #
-    # Phase 3: Parallel — Revenue Leakage + Compliance                    #
-    # ------------------------------------------------------------------ #
-    print("\n[Phase 3] Running Leakage and Compliance agents in parallel...", flush=True)
+    # Phase 3a — Revenue Leakage
+    print("\n[Phase 5] Revenue Leakage Agent", flush=True)
+    leakage_summary = await _run_agent("Revenue Leakage Agent", _LEAKAGE_PROMPT)
 
-    leakage_task    = asyncio.create_task(_run_agent("Revenue Leakage Agent", _LEAKAGE_PROMPT))
-    compliance_task = asyncio.create_task(_run_agent("Compliance Agent",      _COMPLIANCE_PROMPT))
+    # Phase 3b — Compliance
+    print("\n[Phase 6] Compliance Agent", flush=True)
+    compliance_summary = await _run_agent("Compliance Agent", _COMPLIANCE_PROMPT)
 
-    leakage_summary, compliance_summary = await asyncio.gather(leakage_task, compliance_task)
-
-    # ------------------------------------------------------------------ #
-    # Phase 4: Invoice Drafting                                           #
-    # ------------------------------------------------------------------ #
-    print("\n[Phase 4] Running Invoice Drafting agent...", flush=True)
+    # Phase 4 — Invoice Drafting
+    print("\n[Phase 7] Invoice Drafting Agent", flush=True)
     invoice_summary = await _run_agent("Invoice Drafting Agent", _INVOICE_PROMPT)
 
-    # ------------------------------------------------------------------ #
-    # Phase 5: Review & Alert                                             #
-    # ------------------------------------------------------------------ #
-    print("\n[Phase 5] Running Review & Alert agent...", flush=True)
+    # Phase 5 — Review & Alert
+    print("\n[Phase 8] Review & Alert Agent", flush=True)
     review_prompt = _review_prompt(
         norm_summary, contract_summary, slack_summary,
         recon_summary, leakage_summary, compliance_summary, invoice_summary,
@@ -387,51 +372,9 @@ async def main() -> None:
     print("\n[orchestrator] Pipeline complete.", flush=True)
 
 
-# ---------------------------------------------------------------------------
-# Entry point with retry on API overload
-# ---------------------------------------------------------------------------
-
-def _is_overloaded(e: Exception) -> bool:
-    msg = str(e)
-    return "529" in msg or "overloaded" in msg.lower()
-
-
-def _report_exists() -> bool:
-    """True if a report file was written today (success heuristic)."""
-    from datetime import date as _date
-    today = _date.today().isoformat()
-    report_dir = os.path.join(OUT_DIR, f"audit_{today}")
-    # Check any file starting with "audit_" and ending today
-    out = os.path.join(OUT_DIR)
-    if os.path.isdir(out):
-        for fname in os.listdir(out):
-            if fname.startswith("audit_") and today in fname and fname.endswith(".html"):
-                return True
-    return False
-
-
 if __name__ == "__main__":
-    MAX_RETRIES = 3
-    delay = 30
-
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            anyio.run(main)
-            break
-        except Exception as e:
-            if "Command failed" in str(e) and _report_exists():
-                print(f"[orchestrator] Report written successfully.", flush=True)
-                sys.exit(0)
-
-            if _is_overloaded(e) and attempt < MAX_RETRIES:
-                print(
-                    f"[orchestrator] API overloaded (attempt {attempt}/{MAX_RETRIES}), "
-                    f"retrying in {delay}s...",
-                    flush=True,
-                )
-                time.sleep(delay)
-                delay *= 2
-                continue
-
-            print(f"[orchestrator] Fatal: {e}", file=sys.stderr)
-            sys.exit(1)
+    try:
+        anyio.run(main)
+    except Exception as e:
+        print(f"[orchestrator] Fatal: {e}", file=sys.stderr)
+        sys.exit(1)

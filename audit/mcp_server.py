@@ -42,7 +42,6 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
-from audit.checks import run_all
 from audit.loader import load_all, discover_csv_files, load_sow_documents, load_guidelines_documents, DATA_VERSION
 from audit.report import generate
 
@@ -386,6 +385,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             })
 
         elif name == "run_audit_checks":
+            from audit.checks import run_all
             issues, hours_issues = run_all()
             ctx = load_all()
             _results["issues"]            = issues
@@ -621,8 +621,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # Phase 5 — Generate Full Report                                    #
         # ---------------------------------------------------------------- #
         elif name == "generate_full_report":
-            # Run legacy checks for the base report
-            issues, hours_issues = run_all()
             ctx = load_all()
 
             raw = arguments.get("key_takeaways_json", "[]") or "[]"
@@ -633,16 +631,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             except Exception:
                 takeaways = [raw] if raw != "[]" else []
 
-            # Load intelligence layer state (may be None if agents didn't run)
-            leakage     = _load_state("leakage_findings")
-            compliance  = _load_state("compliance_findings")
-            invoice     = _load_state("invoice_draft")
-            slack_state = _load_state("slack_signals")
-
+            # Load all intelligence-pipeline state
+            leakage          = _load_state("leakage_findings")
+            compliance       = _load_state("compliance_findings")
+            invoice          = _load_state("invoice_draft")
+            slack_state      = _load_state("slack_signals")
             work_units_state = _load_state("work_units")
+
             path = generate(
-                issues=issues,
-                hours_issues=hours_issues,
+                issues=[],
+                hours_issues=[],
                 total_entries=len(ctx["ts"]),
                 key_takeaways=takeaways,
                 data_version=DATA_VERSION,
@@ -660,7 +658,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return ok({
                 "status":                 "written",
                 "path":                   path,
-                "legacy_check_count":     len(issues),
                 "leakage_findings":       leakage.get("total_findings", 0) if leakage else 0,
                 "compliance_findings":    compliance.get("total_findings", 0) if compliance else 0,
                 "invoice_grand_total":    invoice.get("grand_total", 0) if invoice else 0,
