@@ -184,9 +184,10 @@ def _table_wrap(headers: list, rows_html: str) -> str:
     )
     th_cells = "".join(f'<th style="{th_style}">{esc(h)}</th>' for h in headers)
     return (
-        f'<div style="overflow-x:auto;margin-top:10px;border:1px solid #e5e7eb;border-radius:6px">'
+        f'<div style="overflow:auto;max-height:320px;margin-top:10px;'
+        f'border:1px solid #e5e7eb;border-radius:6px">'
         f'<table style="width:100%;border-collapse:collapse;font-size:0.82rem">'
-        f'<thead><tr>{th_cells}</tr></thead>'
+        f'<thead style="position:sticky;top:0;z-index:1"><tr>{th_cells}</tr></thead>'
         f'<tbody>{rows_html}</tbody>'
         f'</table></div>'
     )
@@ -664,10 +665,10 @@ def _key_takeaways_panel(
     ) if invoice_draft else 0
 
     if n_crit_compliance > 0:
-        status       = "BLOCKED"
+        status       = "ACTION REQUIRED"
         status_color = "#dc2626"
         status_bg    = "#fef2f2"
-        status_reason = f"{n_crit_compliance} critical compliance issue(s) must be resolved first."
+        status_reason = f"{n_crit_compliance} critical compliance issue(s) must be resolved before sending."
     elif n_crit_leakage > 0:
         status       = "NEEDS REVIEW"
         status_color = "#d97706"
@@ -692,7 +693,8 @@ def _key_takeaways_panel(
     readiness_html = (
         f'<div style="display:flex;align-items:center;gap:14px;padding:14px 18px;'
         f'background:{status_bg};border:1px solid {status_color}40;border-radius:8px;margin-bottom:16px">'
-        f'<span style="font-size:1.3rem;font-weight:800;color:{status_color}">{status}</span>'
+        f'<span style="background:{status_color};color:#fff;padding:4px 14px;border-radius:6px;'
+        f'font-size:0.82rem;font-weight:700;letter-spacing:.04em;white-space:nowrap">{status}</span>'
         f'<span style="font-size:0.85rem;color:#374151">{esc(status_reason)}</span>'
         f'</div>'
     )
