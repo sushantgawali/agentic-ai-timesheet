@@ -57,6 +57,16 @@ OUT_DIR      = os.environ.get("OUT_DIR",  "output")
 SERVER_SCRIPT = str(Path(__file__).parent / "audit" / "mcp_server.py")
 
 
+def _python_exe() -> str:
+    """Return python3.11+ if available (mcp requires >=3.10), else python3."""
+    import shutil
+    for candidate in ("python3.11", "python3.12", "python3.10", "python3"):
+        exe = shutil.which(candidate)
+        if exe:
+            return exe
+    return "python3"
+
+
 def _mcp_options(max_turns: int = 6, model: str = MODEL) -> ClaudeAgentOptions:
     """Return ClaudeAgentOptions wired to the shared MCP server."""
     return ClaudeAgentOptions(
@@ -64,7 +74,7 @@ def _mcp_options(max_turns: int = 6, model: str = MODEL) -> ClaudeAgentOptions:
         mcp_servers={
             "audit": {
                 "type":    "stdio",
-                "command": "python3",
+                "command": _python_exe(),
                 "args":    [SERVER_SCRIPT],
                 "env": {
                     "DATA_DIR":   DATA_DIR,

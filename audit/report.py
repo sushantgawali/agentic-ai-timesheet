@@ -504,14 +504,6 @@ def _render_invoice(invoice: dict) -> str:
     # Build per-project warning lookup
     proj_warnings: dict = defaultdict(list)
     for w in warnings:
-        matched = False
-        for proj_key in by_proj_keys_placeholder := []:  # filled below
-            pass
-        proj_warnings["__global__"].append(w)  # fallback, reassigned below
-
-    # Reset and properly assign warnings to projects
-    proj_warnings = defaultdict(list)
-    for w in warnings:
         assigned = False
         for proj_key in [l["project"] for l in lines]:
             if proj_key.lower() in w.lower() or w.lower() in proj_key.lower():
