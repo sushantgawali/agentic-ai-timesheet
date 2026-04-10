@@ -33,6 +33,7 @@ LABELS = {
     "CHECK-13": "HOURS FIELD ACCURACY",
     "CHECK-14": "BILLING ON PUBLIC HOLIDAY",
     "CHECK-15": "PROJECT BUDGET OVERRUN",
+    "CHECK-16": "NAME AMBIGUITY / VARIANT",
 }
 
 SEVERITY_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
@@ -322,6 +323,58 @@ def run_all() -> tuple[list[dict], list[dict]]:
                 f"Near budget limit: {actual_h:.1f}h logged vs {budget_h:.0f}h budget ({pct:.0%}) — cost ${actual_c:,.0f} vs ${budget_c:,.0f}",
                 f"Project={project} | hours: actual={actual_h:.1f} budget={budget_h:.0f} diff={h_diff:+.1f} | cost: actual=${actual_c:,.0f} budget=${budget_c:,.0f} diff=${c_diff:+,.0f}",
                 project=project,
+            ))
+
+    # --- CHECK-16: Name ambiguity / variant detection ---
+    all_users    = sorted({r["user"] for r in ts if r.get("user")})
+    all_projects = sorted({r["project"] for r in ts if r.get("project")})
+
+    # (a) Users sharing the same first-name token → ambiguous references in Slack/SOW
+    first_name_map: dict = defaultdict(list)
+    for u in all_users:
+        first = u.split(".")[0].split("_")[0].split(" ")[0].lower()
+        first_name_map[first].append(u)
+    for first, group in sorted(first_name_map.items()):
+        if len(group) > 1:
+            issues.append(_issue(
+                "CHECK-16", "WARNING", ", ".join(group), "",
+                f"Ambiguous first name '{first}': {len(group)} users share it",
+                f"Users: {', '.join(group)} — references to '{first}' in Slack/SOW/email "
+                f"are unresolvable without full names. Standardise identifiers.",
+            ))
+
+    # (b) Users where one name is a prefix/substring of another → likely variant of same person
+    for i, u1 in enumerate(all_users):
+        for u2 in all_users[i + 1:]:
+            u1l, u2l = u1.lower(), u2.lower()
+            # substring match only when the shorter name has no dot (bare first name)
+            if "." not in u1l and u1l in u2l:
+                issues.append(_issue(
+                    "CHECK-16", "WARNING", f"{u1} / {u2}", "",
+                    f"Name variant risk: '{u1}' may be incomplete form of '{u2}'",
+                    f"'{u1}' (no surname) appears alongside '{u2}' — could be same person "
+                    f"with inconsistent naming, causing double-counting or missed matches.",
+                ))
+            elif "." not in u2l and u2l in u1l:
+                issues.append(_issue(
+                    "CHECK-16", "WARNING", f"{u1} / {u2}", "",
+                    f"Name variant risk: '{u2}' may be incomplete form of '{u1}'",
+                    f"'{u2}' (no surname) appears alongside '{u1}' — could be same person "
+                    f"with inconsistent naming, causing double-counting or missed matches.",
+                ))
+
+    # (c) Project name variants — same words, different casing or spacing
+    proj_norm_map: dict = defaultdict(list)
+    for p in all_projects:
+        norm = p.lower().replace("-", " ").replace("_", " ").strip()
+        proj_norm_map[norm].append(p)
+    for norm, group in sorted(proj_norm_map.items()):
+        if len(group) > 1:
+            issues.append(_issue(
+                "CHECK-16", "WARNING", "", ", ".join(group),
+                f"Project name variant: {len(group)} spellings for '{norm}'",
+                f"Project spellings: {', '.join(group)} — may split hours across "
+                f"duplicate project buckets. Normalise to a single canonical name.",
             ))
 
     # Sort: severity, then user, then date
