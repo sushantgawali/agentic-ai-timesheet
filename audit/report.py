@@ -824,6 +824,14 @@ def generate(
     n_warn = sum(1 for i in issues if i["severity"] == "WARNING")
     n_info = sum(1 for i in issues if i["severity"] == "INFO")
 
+    # Include counts from agent pipeline findings
+    if compliance_findings:
+        n_crit += compliance_findings.get("critical_count", 0)
+        n_warn += compliance_findings.get("warning_count", 0)
+    if leakage_findings:
+        n_crit += leakage_findings.get("critical_count", 0)
+        n_warn += leakage_findings.get("warning_count", 0)
+
     # ---- Sections ----
     stat_tiles_html = _stat_tiles(
         total_entries, n_crit, n_warn, n_info,
