@@ -164,7 +164,7 @@ def _section(title: str, count: int, sev_color: str, body_html: str, section_id:
       <span style="font-size:1rem;font-weight:700;color:#111827">
         {esc(title)}{count_badge}
       </span>
-      <span style="font-size:0.75rem;color:#9ca3af">▲ collapse</span>
+      <span class="chevron" style="font-size:0.75rem;color:#9ca3af;display:inline-block">▶</span>
     </summary>
     <div style="margin-top:16px">{body_html}</div>
   </details>
@@ -213,6 +213,7 @@ def _accordion(title: str, count: int, sev: str, body_html: str, open_: bool = F
         f'{badge(sev)}'
         f'<span style="font-weight:600;font-size:0.87rem;color:#111827">{esc(title)}</span>'
         f'{count_pill}'
+        f'<span class="chevron" style="margin-left:auto;color:#9ca3af;font-size:0.75rem;display:inline-block">▶</span>'
         f'</summary>'
         f'<div style="padding:0 14px 14px">{body_html}</div>'
         f'</details>'
@@ -599,18 +600,16 @@ def _render_invoice(invoice: dict) -> str:
             f'⚠ {flagged} flagged</span>'
         ) if flagged else ""
 
-        chevron = '<span style="margin-left:auto;color:#9ca3af;font-size:0.75rem">▶ expand</span>'
-
         parts.append(
             f'<details style="border:1px solid #e5e7eb;border-radius:6px;'
             f'margin-bottom:8px;background:#fff">'
             f'<summary style="cursor:pointer;list-style:none;padding:12px 16px;'
             f'display:flex;align-items:center;gap:6px;user-select:none">'
+            f'<span class="chevron" style="color:#9ca3af;font-size:0.75rem;display:inline-block">▶</span>'
             f'<span style="font-weight:600;font-size:0.87rem;color:#111827">{esc(proj)}</span>'
             f'{flag_note}'
             f'<span style="margin-left:auto;font-weight:700;color:#16a34a;font-size:0.9rem">'
             f'${proj_total:,.2f}</span>'
-            f'<span style="color:#9ca3af;font-size:0.75rem;margin-left:10px">▶</span>'
             f'</summary>'
             f'<div style="padding:0 14px 14px">{proj_warn_html}{table_html}</div>'
             f'</details>'
@@ -900,7 +899,7 @@ body {
   padding: 20px 24px; margin-bottom: 16px;
 }
 details summary::-webkit-details-marker { display: none; }
-details[open] > summary span:last-child { transform: rotate(90deg); display: inline-block; }
+details[open] > summary .chevron { transform: rotate(90deg); display: inline-block; }
 a { color: #2563eb; }
 table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 table td[style*="color:#374151"] { white-space: normal; overflow: visible; }
