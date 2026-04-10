@@ -1,175 +1,106 @@
 # Agentic AI Timesheet Auditor
 
-Audits, validates, and corrects Kimai timesheet exports using HR, project,
-Slack, git, SOW contracts, and calendar data as reference sources. Runs 15
-checks and generates a detailed HTML report with AI-generated key takeaways,
-interactive filtering, per-employee/project summaries, and SOW budget vs
-actuals analysis.
-
-Two ways to use it:
-
-| Approach | Best for | Doc |
-|----------|----------|-----|
-| **Claude Code commands** | Interactive local use — audit, plan fixes, apply | [docs/claude-code-commands.md](docs/claude-code-commands.md) |
-| **Agent SDK pipeline** | Automated CI/CD — scheduled audits, GitHub Pages report hosting | [docs/agent-sdk-pipeline.md](docs/agent-sdk-pipeline.md) |
+An 8-agent revenue intelligence pipeline that audits timesheet exports, detects billing issues, checks contract compliance, and generates an actionable HTML report — before the invoice goes out.
 
 ---
 
-## Agent SDK flow
+## What it solves
 
-The audit runs as a 5-step agentic pipeline. Claude orchestrates tool calls
-via an MCP subprocess server; no audit logic runs inside the LLM itself.
+- **Revenue leakage** — hours logged at wrong rates, Slack work with no timesheet entry, cap overages
+- **Contract compliance** — billing on leave days, public holidays, to archived projects, by deactivated employees
+- **SOW validation** — actual hours/cost vs contracted budget per project, role mismatches against team rosters
+- **Data quality** — missing descriptions, invalid timestamps, overlapping entries, hours field errors
+- **Slack signal detection** — classifies messages to surface unlogged work, scope changes, and escalations
+- **Invoice readiness** — drafts line items with contract rates, flags lines needing human review before sending
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        audit_agent_sdk.py                           │
-│                    (Claude Agent SDK entry point)                   │
-└───────────────────────────┬─────────────────────────────────────────┘
-                            │  spawns subprocess MCP server
-                            ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                       audit/mcp_server.py                           │
-│                  (stdio MCP server — 5 tools)                       │
-└──────┬──────────┬──────────┬──────────┬──────────────────┬──────────┘
-       │          │          │          │                  │
-       ▼          ▼          ▼          ▼                  ▼
-  1. discover  2. read    3. load    4. run           5. generate
-  _data_files  _sow_docs  _timesheet _audit_checks   _html_report
-       │          │       _data           │                │
-       │          │          │            │                │
-       ▼          ▼          ▼            ▼                ▼
-  Scan DATA_DIR  Parse    Load all     Run 15           Write HTML
-  for all CSVs, .docx SOW  CSVs by    checks against   report to
-  infer role    files in  inferred   loaded data.      output/.
-  from columns. documents role       Return issues     Pass AI key
-                /sow/.    (timesheet (CRITICAL /       takeaways
-                Return    s, HR, PM, WARNING /         for the
-                team,     Slack,     INFO).            summary
-                rates,    calendar,                   section.
-                monthly   holidays,
-                hours.    emails).
-```
+---
 
-**Data flow inside the MCP server:**
+## Agent pipeline
+
+Eight focused sub-agents run sequentially. Each calls MCP tools, writes output to shared state on disk, and passes a plain-text summary to the next phase.
 
 ```
-DATA_DIR/
-  *.csv              →  loader.discover_csv_files()  →  role map
-  documents/sow/*.docx → loader.load_sow_documents()  →  SOW structs
-                       ↓
-               loader.load_all()
-                       ↓
-         ctx {ts, emp_rate, emp_status, user_projs,
-              approved_leave, proj_status, slack_active,
-              git_active, public_holidays, calendar,
-              proj_budget_hours, proj_budget_cost,
-              proj_actual_hours, proj_actual_cost}
-                       ↓
-               checks.run_all(ctx)
-                       ↓
-         (issues[], hours_issues[])  →  report.generate()  →  audit_YYYY-MM-DD.html
+audit_agent_sdk.py  (orchestrator)
+        │
+        ├── Phase 1 ──────────────────────────────────────────────────┐
+        │   ├── Normalization Agent    → build_work_units             │
+        │   ├── Contract Agent         → build_contract_model         │  parallel-ready
+        │   └── Context Mining Agent   → extract_slack_signals        │
+        │                                                              ┘
+        ├── Phase 2
+        │   └── Reconciliation Agent   → reconcile_work
+        │         (aligns work units with assignments + contract rules)
+        │
+        ├── Phase 3 ──────────────────────────────────────────────────┐
+        │   ├── Revenue Leakage Agent  → detect_revenue_leakage       │  parallel-ready
+        │   └── Compliance Agent       → run_compliance_checks        │
+        │                                                              ┘
+        ├── Phase 4
+        │   └── Invoice Drafting Agent → build_invoice_draft
+        │
+        └── Phase 5
+            └── Review & Alert Agent  → generate_full_report
+                  (synthesises all findings → HTML report)
 ```
+
+Each agent talks to `audit/mcp_server.py` over stdio (MCP protocol). Full findings are persisted to `output/agent_state/` between phases — tool responses return only summaries to avoid context overflow.
+
+---
+
+## Report
+
+The generated HTML report (`output/audit_*.html`) contains:
+
+- **Invoice status badge** — ACTION REQUIRED / NEEDS REVIEW / READY
+- **Key takeaways** — 5–7 AI-generated, specific, actionable insights
+- **Revenue leakage** — grouped by type, each with USD impact estimate
+- **Compliance blockers** — CRITICAL and WARNING findings with policy clause references
+- **Unlogged Slack work** — messages that signal billable activity with no timesheet
+- **Invoice draft** — line items by project with contract rates and flag review
+- **Project budget vs actuals** — hours and cost against SOW limits
+- **Audit checks** — 15 legacy checks (invalid timestamps, overlaps, rate mismatches, etc.)
+- **Data quality** — per-flag accordion tables with source file evidence
+
+All sections are collapsible accordions with fixed-height scrollable tables and source file chips per finding.
+
+---
+
+## Quick start
+
+```bash
+pip install claude-agent-sdk mcp anyio
+export ANTHROPIC_API_KEY=sk-...
+export DATA_DIR=data/v5
+python audit_agent_sdk.py
+# Report written to output/audit_v5_haiku_YYYY-MM-DD.html
+```
+
+Optional env vars:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_DIR` | `data` | Path to the data folder |
+| `OUT_DIR` | `output` | Where the HTML report is written |
+| `MODEL` | `claude-haiku-4-5-20251001` | Claude model to use |
 
 ---
 
 ## Data sources
 
-The loader is **file-agnostic**: it scans the entire `DATA_DIR` directory,
-reads column headers from every CSV, and infers each file's role automatically.
-No fixed filenames are required — drop any combination of files and the loader
-will pick them up.
+Drop any combination of CSVs into `DATA_DIR`. The loader scans column headers and infers each file's role automatically — no fixed filenames required.
 
-### Inferred roles
+| Role | Key columns |
+|------|-------------|
+| Timesheets | `user`, `date`, `hours`, `begin`, `end` |
+| Employees | `user`, `hourly_rate` / `rate`, `status` |
+| Assignments | `user`, `project` |
+| Leave | `user`, `date`, `leave_type` |
+| Projects | `project`, `status`, `budget` |
+| Slack | `user`, `date`, `text` / `channel` |
+| Holidays | `date`, `holiday` / `name` |
 
-| Role | Detected when columns include |
-|------|-------------------------------|
-| `timesheets` | `user`, `date`, `hours`, `begin`, `end` |
-| `employees` | `user`, `hourly_rate` or `rate`, `status` |
-| `assignments` | `user`, `project` (no `hours`) |
-| `leave` | `user`, `date`, `leave_type` or `type` |
-| `projects` | `project`, `status`, `budget` |
-| `slack` | `user`, `date`, `messages` or `text`/`ts`/`channel` |
-| `git` | `user`, `date`, `commits` |
-| `calendar` | `user`, `date`, `event` or `summary` |
-| `calendar_leave` | `user`, `date`, `leave` or `status` |
-| `holidays` | `date`, `holiday` or `name` (no `user`) |
-| `emails` | `from`, `to`, `subject` or `date`, `sender` |
-
-### SOW documents
-
-Place Statement of Work `.docx` files in `DATA_DIR/documents/sow/`. The loader
-reads them with stdlib only (`zipfile` + `xml.etree.ElementTree` — no extra
-pip dependency). Each SOW is parsed for:
-
-- Project name, client, SOW reference, effective/end dates, monthly value
-- Team table: member name, role, allocation %, contracted rate (USD/hr),
-  monthly hours commitment
-
-The `read_sow_documents` MCP tool also attaches actuals from the timesheets so
-Claude can compare contracted hours/cost vs what was actually billed.
-
-### Versioned datasets
-
-```
-data/
-  v2/    # baseline dataset
-  v3/    # extended dataset with additional employees and projects
-  v5/    # full dataset: 9 CSVs + 17 SOW DOCXs + policy guidelines
-    kimai_timesheets.csv
-    hr_employees.csv
-    hr_assignments.csv
-    hr_leave.csv
-    pm_projects.csv
-    slack_activity.csv
-    calendar_leave.csv
-    calendar_holidays.csv
-    emails.csv
-    documents/
-      sow/          # 17 Statement of Work DOCX files
-      guidelines/   # HR policy PDFs and DOCXs (leave, holidays, timesheets)
-```
-
----
-
-## Audit checks
-
-| Check | Name | Severity |
-|-------|------|----------|
-| CHECK-1  | INVALID TIMESTAMP | CRITICAL |
-| CHECK-2  | OVERLAPPING ENTRIES | CRITICAL |
-| CHECK-3  | TIMESHEET ON LEAVE DAY | CRITICAL |
-| CHECK-4  | UNASSIGNED PROJECT BILLING | CRITICAL |
-| CHECK-5  | ARCHIVED PROJECT BILLING | CRITICAL |
-| CHECK-6  | INCONSISTENT HOURLY RATE | WARNING |
-| CHECK-7  | MISSING ACTIVITY | WARNING |
-| CHECK-8  | MISSING DESCRIPTION | WARNING |
-| CHECK-9  | MISSING PROJECT | WARNING |
-| CHECK-10 | DEACTIVATED EMPLOYEE BILLING | CRITICAL |
-| CHECK-11 | WEEKEND ENTRIES | INFO |
-| CHECK-12 | MISSING TIMESHEET — ACTIVE DAY | WARNING |
-| CHECK-13 | HOURS FIELD ACCURACY | INFO |
-| CHECK-14 | BILLING ON PUBLIC HOLIDAY | WARNING |
-| CHECK-15 | PROJECT BUDGET OVERRUN | CRITICAL / WARNING |
-
-CHECK-14 fires only when a `holidays` file is present. CHECK-15 fires per
-project: CRITICAL if actual hours exceed budget, WARNING if >90%.
-
----
-
-## Report sections
-
-The generated HTML report includes:
-
-- **Header** — data version, model used, run date
-- **Summary tiles** — total entries, CRITICAL / WARNING / INFO counts
-- **Key takeaways** — 3–5 AI-generated insight bullets
-- **Check distribution chart** — horizontal bars by check name, coloured by severity
-- **Top-10 leaderboard** — most-flagged employees and projects side by side
-- **Employee summary** — all employees ranked by issue count (scrollable)
-- **Project summary** — all projects ranked by issue count (scrollable)
-- **Project budget vs actuals** — hours and cost budgets with progress bars (scrollable)
-- **Issues table** — all findings with interactive severity / check / user / project filters (scrollable)
-- **Hours field accuracy** — row-level declared vs calculated hour discrepancies (scrollable)
+SOW documents go in `DATA_DIR/documents/sow/` (`.docx`).
+HR policy guidelines go in `DATA_DIR/documents/guidelines/` (`.pdf` or `.docx`).
 
 ---
 
@@ -177,62 +108,35 @@ The generated HTML report includes:
 
 ```
 .
-├── data/                          # Versioned CSV data sources + SOW documents
-│   ├── v2/
-│   ├── v3/
-│   └── v5/
-│       └── documents/
-│           ├── sow/               # SOW DOCX files
-│           └── guidelines/       # HR policy documents
-├── output/                        # Generated HTML reports (git-ignored)
+├── audit_agent_sdk.py          # Orchestrator — runs 8 agents sequentially
+│
 ├── audit/
-│   ├── loader.py                  # File-agnostic CSV + DOCX loader with caching
-│   ├── checks.py                  # All 15 audit checks
-│   ├── report.py                  # HTML report generator (charts, tables, filters)
-│   └── mcp_server.py              # Subprocess MCP server — 5 tools over stdio
-├── audit_agent_sdk.py             # Agent SDK entry point (CI/CD)
-├── generate_index.py              # Builds GitHub Pages index
-├── requirements.txt
-├── .github/
-│   └── workflows/
-│       └── audit.yml              # GitHub Actions pipeline (v2/v3/v5 options)
-├── docs/
-│   ├── claude-code-commands.md    # Claude Code slash commands guide
-│   └── agent-sdk-pipeline.md     # Agent SDK CI/CD guide
-└── .claude/
-    └── commands/
-        └── timesheet/
-            ├── load-data.md       # /timesheet:load-data
-            ├── audit.md           # /timesheet:audit
-            ├── propose-fixes.md   # /timesheet:propose-fixes
-            └── apply-fixes.md     # /timesheet:apply-fixes
-        └── commit-push.md         # /commit-push
+│   ├── mcp_server.py           # stdio MCP server — 13 tools (phases 1–5)
+│   ├── loader.py               # File-agnostic CSV + DOCX loader
+│   ├── checks.py               # 15 legacy audit checks
+│   ├── report.py               # HTML report generator
+│   └── agents/
+│       ├── normalization.py    # Build WorkUnit records from timesheets
+│       ├── contract.py         # Parse SOW + guidelines → ContractModel
+│       ├── slack_mining.py     # Classify Slack messages → signals
+│       ├── reconciliation.py   # Mark billable/non-billable, detect dupes
+│       ├── leakage.py          # Detect revenue leakage, estimate USD impact
+│       ├── compliance.py       # Run 6 compliance checks (CRITICAL/WARNING)
+│       └── invoice.py          # Draft invoice line items with contract rates
+│
+├── data/
+│   ├── v2/                     # Baseline dataset (8 CSVs)
+│   ├── v3/                     # Extended dataset
+│   └── v5/                     # Full dataset
+│       ├── *.csv               # 9 CSV files
+│       └── documents/
+│           ├── sow/            # 17 SOW DOCX files
+│           └── guidelines/     # HR policy PDFs + DOCXs
+│
+├── output/                     # Generated reports (git-ignored)
+│   └── agent_state/            # Inter-agent state (JSON, git-ignored)
+│
+├── docs/                       # Supplementary documentation
+├── generate_index.py           # GitHub Pages index builder
+└── requirements.txt
 ```
-
----
-
-## Quick start
-
-### Agent SDK (CI/CD)
-
-```bash
-pip install claude-agent-sdk mcp anyio
-export ANTHROPIC_API_KEY=sk-...
-export DATA_VERSION=v5   # v2 | v3 | v5
-python audit_agent_sdk.py
-# Report written to output/audit_YYYY-MM-DD.html
-```
-
-### Claude Code commands (interactive)
-
-```
-/timesheet:load-data
-/timesheet:audit
-/timesheet:propose-fixes
-/timesheet:apply-fixes
-```
-
-### GitHub Actions
-
-Trigger manually via **Actions → Timesheet Audit → Run workflow**, select the
-data version (v2 / v3 / v5), and the report is published to GitHub Pages.
