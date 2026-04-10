@@ -307,10 +307,16 @@ def _render_legacy_issues(issues: list, hours_issues: list) -> str:
     return "".join(parts)
 
 
-def _render_leakage(leakage: dict) -> str:
+def _render_leakage(leakage: dict, slack_signals: dict = None) -> str:
     findings = leakage.get("findings", [])
     if not findings:
         return '<p style="color:#6b7280;font-style:italic">No leakage signals detected.</p>'
+
+    # Build a lookup of (user, date) → slack message text for unlogged_work enrichment
+    slack_msg_lookup: dict = {}
+    if slack_signals:
+        for s in slack_signals.get("work_without_timesheet", []):
+            slack_msg_lookup[(s.get("user", ""), s.get("date", ""))] = s.get("text", "")
 
     by_type = defaultdict(list)
     for f in findings:
@@ -334,11 +340,21 @@ def _render_leakage(leakage: dict) -> str:
         total_impact = sum(f.get("estimated_impact") or 0 for f in items)
         sources      = LEAKAGE_SOURCES.get(ftype, ["kimai_timesheets.csv"])
         action       = LEAKAGE_ACTIONS.get(ftype, "Review and resolve before invoicing.")
+        show_msg     = (ftype == "unlogged_work" and slack_msg_lookup)
+
+        headers = ["User", "Date", "Project", "Description", "Impact (USD)"]
+        if show_msg:
+            headers.append("Slack Message")
 
         rows_html = ""
         for f in items[:50]:
             impact     = f.get("estimated_impact")
             impact_str = f"${impact:,.2f}" if impact else "—"
+            msg_text   = slack_msg_lookup.get((f.get("user", ""), f.get("date", "")), "") if show_msg else ""
+            msg_cell   = (
+                f'<td style="{td};color:#6b7280;font-style:italic">{esc(msg_text[:120])}</td>'
+                if show_msg else ""
+            )
             rows_html += (
                 f'<tr>'
                 f'<td style="{td};font-weight:600">{esc(f.get("user",""))}</td>'
@@ -346,19 +362,21 @@ def _render_leakage(leakage: dict) -> str:
                 f'<td style="{td}">{esc(f.get("project","") or "")}</td>'
                 f'<td style="{td};color:#374151">{esc(f.get("description",""))}</td>'
                 f'<td style="{td};text-align:right;font-weight:600;color:#dc2626">{impact_str}</td>'
+                f'{msg_cell}'
                 f'</tr>'
             )
         if len(items) > 50:
+            cols = len(headers)
             rows_html += (
-                f'<tr><td colspan="5" style="{td};color:#9ca3af;font-style:italic">'
+                f'<tr><td colspan="{cols}" style="{td};color:#9ca3af;font-style:italic">'
                 f'… and {len(items)-50} more findings.</td></tr>'
             )
 
-        title_str = f"{label}"
+        title_str = label
         if total_impact:
             title_str += f" — ${total_impact:,.0f} at risk"
 
-        table = _table_wrap(["User", "Date", "Project", "Description", "Impact (USD)"], rows_html)
+        table = _table_wrap(headers, rows_html)
         body  = _action_hint(action) + _source_chips(sources) + table
         parts.append(_accordion(title_str, len(items), sev, body, open_=(i == 0)))
 
@@ -909,9 +927,8 @@ def generate(
         key_takeaways or [], leakage_findings, compliance_findings, invoice_draft
     )
 
-    leakage_html    = _render_leakage(leakage_findings)    if leakage_findings    else ""
+    leakage_html    = _render_leakage(leakage_findings, slack_signals) if leakage_findings else ""
     compliance_html = _render_compliance(compliance_findings) if compliance_findings else ""
-    slack_html      = _render_slack_unlogged(slack_signals) if slack_signals       else ""
     invoice_html    = _render_invoice(invoice_draft)        if invoice_draft        else ""
     budget_html     = _render_budget(
         proj_budget_hours or {}, proj_budget_cost or {},
@@ -932,12 +949,6 @@ def generate(
         compliance_findings.get("total_findings", 0) if compliance_findings else 0,
         "#dc2626", compliance_html, "compliance",
     ) if compliance_findings else ""
-
-    slack_section = _section(
-        "Unlogged Work — Slack Signals",
-        slack_signals.get("unlogged_work_count", 0) if slack_signals else 0,
-        "#d97706", slack_html, "slack",
-    ) if slack_signals else ""
 
     invoice_section = _section(
         "Invoice Draft",
@@ -994,7 +1005,6 @@ def generate(
 {compliance_section}
 {budget_section}
 {invoice_section}
-{slack_section}
 {legacy_section}
 {quality_section}
 
