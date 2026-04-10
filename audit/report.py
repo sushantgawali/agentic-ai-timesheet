@@ -458,6 +458,31 @@ def _render_invoice(invoice: dict) -> str:
     if not lines:
         return '<p style="color:#6b7280;font-style:italic">No billable work units found.</p>'
 
+    FLAG_LEGEND = {
+        "rate_fallback": (
+            "#d97706", "#fffbeb", "#fde68a",
+            "No contract rate found — timesheet rate used. Verify before sending."
+        ),
+        "role_mismatch": (
+            "#dc2626", "#fef2f2", "#fca5a5",
+            "User not listed in the SOW team roster. Needs approval before billing."
+        ),
+    }
+
+    legend_html = (
+        f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">'
+        + "".join(
+            f'<div style="display:flex;align-items:center;gap:8px;padding:6px 12px;'
+            f'background:{bg};border:1px solid {border};border-radius:6px">'
+            f'<span style="background:#fee2e2;color:{color};padding:1px 7px;'
+            f'border-radius:3px;font-size:0.7rem;font-weight:700;white-space:nowrap">{flag}</span>'
+            f'<span style="font-size:0.78rem;color:#374151">{meaning}</span>'
+            f'</div>'
+            for flag, (color, bg, border, meaning) in FLAG_LEGEND.items()
+        )
+        + f'</div>'
+    )
+
     warning_html = "".join(
         f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:4px;'
         f'padding:6px 12px;margin-bottom:6px;font-size:0.8rem;color:#78350f">'
@@ -484,7 +509,7 @@ def _render_invoice(invoice: dict) -> str:
     )
     th_right = th_style + ";text-align:right"
 
-    parts = [warning_html]
+    parts = [legend_html, warning_html]
     for i, proj in enumerate(sorted(by_proj.keys())):
         proj_lines = by_proj[proj]
         proj_total = subtotals.get(proj, 0)
