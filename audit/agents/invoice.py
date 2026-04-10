@@ -109,6 +109,53 @@ def build_invoice_draft(
         })
         proj_subtotals[proj] += amount
 
+    # --- Name ambiguity / variant flags ---
+    unique_invoice_users = list({l["user"] for l in invoice_lines})
+
+    # Build first-name → unique users map
+    first_name_map: dict = defaultdict(list)
+    for u in unique_invoice_users:
+        first = u.split(".")[0].split("_")[0].split(" ")[0].lower()
+        first_name_map[first].append(u)
+
+    # Users whose first name is shared with another distinct invoice user
+    ambiguous_users = {
+        u for u in unique_invoice_users
+        if len(first_name_map[u.split(".")[0].split("_")[0].split(" ")[0].lower()]) > 1
+    }
+
+    # Bare first-name users that are a prefix/substring of another user's full name
+    variant_users: set = set()
+    for u1 in unique_invoice_users:
+        if "." in u1:
+            continue
+        for u2 in unique_invoice_users:
+            if u1 != u2 and u1.lower() in u2.lower():
+                variant_users.add(u1)
+                break
+
+    warned_users: set = set()
+    for line in invoice_lines:
+        u = line["user"]
+        if u in variant_users and "name_variant" not in line["flags"]:
+            line["flags"].append("name_variant")
+            if u not in warned_users:
+                peers = [x for x in unique_invoice_users if u.lower() in x.lower() and x != u]
+                warnings.append(
+                    f"{u}: bare first name — may be same person as {peers}. Verify before billing."
+                )
+                warned_users.add(u)
+        elif u in ambiguous_users and "name_ambiguous" not in line["flags"]:
+            line["flags"].append("name_ambiguous")
+            if u not in warned_users:
+                first = u.split(".")[0].split("_")[0].split(" ")[0].lower()
+                peers = [x for x in ambiguous_users if x != u and x.split(".")[0].lower() == first]
+                warnings.append(
+                    f"{u}: first name '{first}' shared with {peers} — "
+                    "confirm correct person is being billed."
+                )
+                warned_users.add(u)
+
     # Sort lines: project ASC, amount DESC
     invoice_lines.sort(key=lambda l: (l["project"], -l["amount"]))
 

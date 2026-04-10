@@ -486,6 +486,14 @@ def _render_invoice(invoice: dict) -> str:
             "#dc2626", "#fef2f2", "#fca5a5",
             "User not listed in the SOW team roster. Needs approval before billing."
         ),
+        "name_ambiguous": (
+            "#7c3aed", "#f5f3ff", "#ddd6fe",
+            "First name shared by multiple users — confirm correct person is being billed."
+        ),
+        "name_variant": (
+            "#b45309", "#fffbeb", "#fde68a",
+            "Bare first name may be a variant of another user — risk of double-billing or misattribution."
+        ),
     }
 
     legend_html = (
