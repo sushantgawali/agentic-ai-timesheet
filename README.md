@@ -27,23 +27,36 @@ audit_agent_sdk.py  (orchestrator)
         │   ├── Contract Agent         → build_contract_model         │  parallel-ready
         │   └── Context Mining Agent   → extract_slack_signals        │
         │                                                              ┘
-        ├── Phase 2
-        │   └── Reconciliation Agent   → reconcile_work
-        │         (aligns work units with assignments + contract rules)
-        │
-        ├── Phase 3 ──────────────────────────────────────────────────┐
-        │   ├── Revenue Leakage Agent  → detect_revenue_leakage       │  parallel-ready
-        │   └── Compliance Agent       → run_compliance_checks        │
-        │                                                              ┘
-        ├── Phase 4
-        │   └── Invoice Drafting Agent → build_invoice_draft
-        │
-        └── Phase 5
-            └── Review & Alert Agent  → generate_full_report
-                  (synthesises all findings → HTML report)
+        │              writes ──────────────────────────────────────────────────────────┐
+        │                     work_units.json                                           │
+        │                     contract_model.json                                       │
+        │                     slack_signals.json                                        │
+        │                                                              ┌────────────────┘
+        ├── Phase 2                                                    │ output/agent_state/
+        │   └── Reconciliation Agent   → reconcile_work  ─────────────┤ (flat-file JSON store)
+        │         reads:  work_units + contract_model                  │ full findings saved here;
+        │         writes: reconciled.json                              │ tool responses return only
+        │                                                              │ summaries to avoid context
+        ├── Phase 3 ──────────────────────────────────────────────────┤ overflow
+        │   ├── Revenue Leakage Agent  → detect_revenue_leakage       │
+        │   │     reads:  reconciled + slack_signals + contract_model  │
+        │   │     writes: leakage_findings.json                        │
+        │   └── Compliance Agent       → run_compliance_checks         │
+        │         reads:  reconciled + contract_model                  │
+        │         writes: compliance_findings.json                     │
+        │                                                              │
+        ├── Phase 4                                                    │
+        │   └── Invoice Drafting Agent → build_invoice_draft           │
+        │         reads:  reconciled + contract_model                  │
+        │         writes: invoice_draft.json                           │
+        │                                                              │
+        └── Phase 5                                                    │
+            └── Review & Alert Agent  → generate_full_report ─────────┘
+                  reads:  all state files
+                  writes: output/audit_*.html
 ```
 
-Each agent talks to `audit/mcp_server.py` over stdio (MCP protocol). Full findings are persisted to `output/agent_state/` between phases — tool responses return only summaries to avoid context overflow.
+Each agent talks to `audit/mcp_server.py` over stdio (MCP protocol). State files persist across runs — if the pipeline crashes mid-way, earlier phases don't need to re-run.
 
 ---
 
