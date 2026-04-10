@@ -368,9 +368,94 @@ async def main() -> None:
         norm_summary, contract_summary, slack_summary,
         recon_summary, leakage_summary, compliance_summary, invoice_summary,
     )
-    await _run_agent("Review & Alert Agent", review_prompt, max_turns=10, model=REVIEW_MODEL)
+    review_summary = await _run_agent("Review & Alert Agent", review_prompt, max_turns=10, model=REVIEW_MODEL)
+
+    # Guaranteed report generation — write directly from state files so the
+    # report always lands in OUT_DIR regardless of what the Review Agent did.
+    _generate_report_from_state(review_summary)
 
     print("\n[orchestrator] Pipeline complete.", flush=True)
+
+
+def _generate_report_from_state(review_summary: str) -> None:
+    """
+    Load all agent state files and call report.generate() directly.
+    This guarantees the HTML report is written to OUT_DIR even if the
+    Review & Alert Agent wrote its output elsewhere or skipped the tool call.
+    """
+    import glob
+    import json
+    import re
+    from pathlib import Path as _Path
+
+    # Check if report already exists (agent called the tool correctly)
+    existing = glob.glob(str(_Path(OUT_DIR) / "audit_*.html"))
+    if existing:
+        print(f"[orchestrator] Report already at {existing[0]}", flush=True)
+        return
+
+    print("[orchestrator] Report not found in OUT_DIR — generating directly from state files...", flush=True)
+
+    state_dir = _Path(OUT_DIR) / "agent_state"
+
+    def _load(key: str) -> dict:
+        p = state_dir / f"{key}.json"
+        if p.exists():
+            with open(p) as f:
+                return json.load(f)
+        return {}
+
+    leakage    = _load("leakage_findings")
+    compliance = _load("compliance_findings")
+    invoice    = _load("invoice_draft")
+    slack      = _load("slack_signals")
+    work_units = _load("work_units")
+    reconciled = _load("reconciled")
+    contract   = _load("contract_model")
+
+    # Extract key takeaways from the review agent's text output
+    takeaways: list = []
+    json_match = re.search(r'\[.*?\]', review_summary, re.DOTALL)
+    if json_match:
+        try:
+            takeaways = json.loads(json_match.group())
+        except Exception:
+            pass
+    if not takeaways:
+        # Fall back to numbered lines from the summary text
+        for line in review_summary.splitlines():
+            line = line.strip().lstrip("0123456789.-) ")
+            if len(line) > 20:
+                takeaways.append(line)
+            if len(takeaways) >= 7:
+                break
+
+    from audit.loader import load_all
+    from audit.checks import run_all
+    from audit.report import generate
+
+    ctx = load_all()
+    issues, hours_issues = run_all(ctx)
+
+    data_version = _Path(DATA_DIR).name
+    out_path = generate(
+        issues=issues,
+        hours_issues=hours_issues,
+        total_entries=work_units.get("total_entries", ctx.get("total_entries", 0)),
+        key_takeaways=takeaways,
+        data_version=data_version,
+        model=REVIEW_MODEL,
+        proj_budget_hours=ctx.get("proj_budget_hours", {}),
+        proj_budget_cost=ctx.get("proj_budget_cost", {}),
+        proj_actual_hours=ctx.get("proj_actual_hours", {}),
+        proj_actual_cost=ctx.get("proj_actual_cost", {}),
+        leakage_findings=leakage   or None,
+        compliance_findings=compliance or None,
+        invoice_draft=invoice  or None,
+        slack_signals=slack    or None,
+        work_units_data=work_units or None,
+    )
+    print(f"[orchestrator] Report written to {out_path}", flush=True)
 
 
 if __name__ == "__main__":
