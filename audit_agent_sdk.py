@@ -50,16 +50,17 @@ from claude_agent_sdk import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-MODEL      = os.environ.get("MODEL", "claude-haiku-4-5-20251001")
-DATA_DIR   = os.environ.get("DATA_DIR", "data")
-OUT_DIR    = os.environ.get("OUT_DIR", "output")
+MODEL        = os.environ.get("MODEL",        "claude-haiku-4-5-20251001")
+REVIEW_MODEL = os.environ.get("REVIEW_MODEL", "claude-sonnet-4-6")
+DATA_DIR     = os.environ.get("DATA_DIR", "data")
+OUT_DIR      = os.environ.get("OUT_DIR",  "output")
 SERVER_SCRIPT = str(Path(__file__).parent / "audit" / "mcp_server.py")
 
 
-def _mcp_options(max_turns: int = 6) -> ClaudeAgentOptions:
+def _mcp_options(max_turns: int = 6, model: str = MODEL) -> ClaudeAgentOptions:
     """Return ClaudeAgentOptions wired to the shared MCP server."""
     return ClaudeAgentOptions(
-        model=MODEL,
+        model=model,
         mcp_servers={
             "audit": {
                 "type":    "stdio",
@@ -77,7 +78,7 @@ def _mcp_options(max_turns: int = 6) -> ClaudeAgentOptions:
     )
 
 
-async def _run_agent(label: str, prompt: str, max_turns: int = 6) -> str:
+async def _run_agent(label: str, prompt: str, max_turns: int = 6, model: str = MODEL) -> str:
     """
     Run a single sub-agent, stream its output to stdout, and return
     the concatenated text from all AssistantMessage blocks.
@@ -87,7 +88,7 @@ async def _run_agent(label: str, prompt: str, max_turns: int = 6) -> str:
     print(f"{'='*60}", flush=True)
 
     text_parts: list[str] = []
-    options = _mcp_options(max_turns=max_turns)
+    options = _mcp_options(max_turns=max_turns, model=model)
 
     async for message in query(prompt=prompt, options=options):
         if isinstance(message, AssistantMessage):
@@ -331,7 +332,7 @@ STEPS
 
 async def main() -> None:
     print(f"[orchestrator] Starting Revenue Intelligence Pipeline", flush=True)
-    print(f"[orchestrator] Model: {MODEL}  |  Data: {DATA_DIR}  |  Output: {OUT_DIR}", flush=True)
+    print(f"[orchestrator] Agents: {MODEL}  |  Review: {REVIEW_MODEL}  |  Data: {DATA_DIR}  |  Output: {OUT_DIR}", flush=True)
 
     # Phase 1a — Normalization
     print("\n[Phase 1/3] Normalization Agent", flush=True)
@@ -367,7 +368,7 @@ async def main() -> None:
         norm_summary, contract_summary, slack_summary,
         recon_summary, leakage_summary, compliance_summary, invoice_summary,
     )
-    await _run_agent("Review & Alert Agent", review_prompt, max_turns=10)
+    await _run_agent("Review & Alert Agent", review_prompt, max_turns=10, model=REVIEW_MODEL)
 
     print("\n[orchestrator] Pipeline complete.", flush=True)
 
