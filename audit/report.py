@@ -180,13 +180,15 @@ def _table_wrap(headers: list, rows_html: str) -> str:
     th_style = (
         "padding:8px 12px;font-size:0.7rem;text-transform:uppercase;"
         "letter-spacing:.04em;color:#6b7280;border-bottom:2px solid #e5e7eb;"
-        "white-space:nowrap;text-align:left;background:#f9fafb"
+        "text-align:left;background:#f9fafb;overflow:hidden;text-overflow:ellipsis;"
+        "white-space:nowrap"
     )
     th_cells = "".join(f'<th style="{th_style}">{esc(h)}</th>' for h in headers)
     return (
         f'<div style="overflow:auto;max-height:320px;margin-top:10px;'
         f'border:1px solid #e5e7eb;border-radius:6px">'
-        f'<table style="width:100%;border-collapse:collapse;font-size:0.82rem">'
+        f'<table style="width:100%;min-width:700px;border-collapse:collapse;'
+        f'font-size:0.82rem;table-layout:fixed">'
         f'<thead style="position:sticky;top:0;z-index:1"><tr>{th_cells}</tr></thead>'
         f'<tbody>{rows_html}</tbody>'
         f'</table></div>'
@@ -447,7 +449,7 @@ def _render_slack_unlogged(slack: dict) -> str:
 
 
 def _render_invoice(invoice: dict) -> str:
-    lines    = invoice.get("invoice_lines", [])
+    lines     = invoice.get("invoice_lines", [])
     subtotals = invoice.get("project_subtotals", {})
     warnings  = invoice.get("warnings", [])
     grand     = invoice.get("grand_total", 0)
@@ -456,64 +458,101 @@ def _render_invoice(invoice: dict) -> str:
     if not lines:
         return '<p style="color:#6b7280;font-style:italic">No billable work units found.</p>'
 
-    warning_html = ""
-    for w in warnings:
-        warning_html += (
-            f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:4px;'
-            f'padding:6px 12px;margin-bottom:6px;font-size:0.8rem;color:#78350f">'
-            f'&#9888; {esc(w)}</div>'
-        )
+    warning_html = "".join(
+        f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:4px;'
+        f'padding:6px 12px;margin-bottom:6px;font-size:0.8rem;color:#78350f">'
+        f'&#9888; {esc(w)}</div>'
+        for w in warnings
+    )
 
-    # Group lines by project
     by_proj = defaultdict(list)
     for l in lines:
         by_proj[l["project"]].append(l)
 
-    parts = [warning_html]
-    th = ("padding:8px 12px;font-size:0.7rem;text-transform:uppercase;letter-spacing:.04em;"
-          "color:#6b7280;border-bottom:2px solid #e5e7eb;white-space:nowrap")
+    # Shared column widths for consistent alignment across all project tables
+    COL_WIDTHS = ["30%", "25%", "10%", "12%", "13%", "10%"]
+    COL_HEADERS = ["User", "Role", "Hours", "Rate ($/hr)", "Amount", "Flags"]
 
-    for proj in sorted(by_proj.keys()):
-        proj_lines  = by_proj[proj]
-        proj_total  = subtotals.get(proj, 0)
-        parts.append(
-            f'<div style="font-size:0.82rem;font-weight:700;color:#374151;'
-            f'margin:16px 0 6px;display:flex;justify-content:space-between">'
-            f'<span>{esc(proj)}</span>'
-            f'<span style="color:#16a34a">${proj_total:,.2f}</span>'
-            f'</div>'
-        )
-        parts.append(
-            f'<div style="overflow-x:auto;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:12px">'
-            f'<table style="width:100%;border-collapse:collapse;font-size:0.82rem">'
-            f'<thead><tr>'
-            f'<th style="{th};text-align:left">User</th>'
-            f'<th style="{th};text-align:left">Role</th>'
-            f'<th style="{th};text-align:right">Hours</th>'
-            f'<th style="{th};text-align:right">Rate ($/hr)</th>'
-            f'<th style="{th};text-align:right">Amount</th>'
-            f'<th style="{th}">Flags</th>'
-            f'</tr></thead><tbody>'
-        )
+    def _col_group() -> str:
+        return "".join(f'<col style="width:{w}">' for w in COL_WIDTHS)
+
+    td = "padding:7px 12px;border-bottom:1px solid #f3f4f6;vertical-align:middle"
+    th_style = (
+        "padding:8px 12px;font-size:0.7rem;text-transform:uppercase;letter-spacing:.04em;"
+        "color:#6b7280;border-bottom:2px solid #e5e7eb;white-space:nowrap;"
+        "background:#f9fafb;overflow:hidden;text-overflow:ellipsis"
+    )
+    th_right = th_style + ";text-align:right"
+
+    parts = [warning_html]
+    for i, proj in enumerate(sorted(by_proj.keys())):
+        proj_lines = by_proj[proj]
+        proj_total = subtotals.get(proj, 0)
+        flagged    = sum(1 for l in proj_lines if l.get("flags"))
+
+        # Build table rows
+        rows_html = ""
         for line in proj_lines:
             flag_html = " ".join(
                 f'<span style="background:#fee2e2;color:#dc2626;padding:1px 6px;'
                 f'border-radius:3px;font-size:0.68rem;font-weight:600">{esc(fl)}</span>'
                 for fl in line.get("flags", [])
             )
-            parts.append(
-                f'<tr style="border-bottom:1px solid #f3f4f6">'
-                f'<td style="padding:7px 12px;font-weight:600">{esc(line["user"])}</td>'
-                f'<td style="padding:7px 12px;color:#6b7280">{esc(line.get("role",""))}</td>'
-                f'<td style="padding:7px 12px;text-align:right">{line["hours"]:.2f}</td>'
-                f'<td style="padding:7px 12px;text-align:right">{line["rate"]:.2f}</td>'
-                f'<td style="padding:7px 12px;text-align:right;font-weight:700;color:#16a34a">'
-                f'${line["amount"]:,.2f}</td>'
-                f'<td style="padding:7px 12px">{flag_html}</td>'
+            rows_html += (
+                f'<tr>'
+                f'<td style="{td};font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{esc(line["user"])}</td>'
+                f'<td style="{td};color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{esc(line.get("role",""))}</td>'
+                f'<td style="{td};text-align:right">{line["hours"]:.2f}</td>'
+                f'<td style="{td};text-align:right">{line["rate"]:.2f}</td>'
+                f'<td style="{td};text-align:right;font-weight:700;color:#16a34a">${line["amount"]:,.2f}</td>'
+                f'<td style="{td}">{flag_html}</td>'
                 f'</tr>'
             )
-        parts.append('</tbody></table></div>')
 
+        th_cells = (
+            f'<th style="{th_style}">{COL_HEADERS[0]}</th>'
+            f'<th style="{th_style}">{COL_HEADERS[1]}</th>'
+            f'<th style="{th_right}">{COL_HEADERS[2]}</th>'
+            f'<th style="{th_right}">{COL_HEADERS[3]}</th>'
+            f'<th style="{th_right}">{COL_HEADERS[4]}</th>'
+            f'<th style="{th_style}">{COL_HEADERS[5]}</th>'
+        )
+
+        table_html = (
+            f'<div style="overflow:auto;max-height:280px;margin-top:10px;'
+            f'border:1px solid #e5e7eb;border-radius:6px">'
+            f'<table style="width:100%;border-collapse:collapse;font-size:0.82rem;table-layout:fixed">'
+            f'<colgroup>{_col_group()}</colgroup>'
+            f'<thead style="position:sticky;top:0;z-index:1"><tr>{th_cells}</tr></thead>'
+            f'<tbody>{rows_html}</tbody>'
+            f'</table></div>'
+        )
+
+        # Summary line shown in accordion header
+        flag_note = (
+            f'<span style="font-size:0.72rem;color:#dc2626;margin-left:8px">'
+            f'{flagged} flagged</span>'
+        ) if flagged else ""
+
+        summary_right = (
+            f'<span style="margin-left:auto;font-weight:700;color:#16a34a;font-size:0.9rem">'
+            f'${proj_total:,.2f}</span>'
+        )
+
+        parts.append(
+            f'<details open style="border:1px solid #e5e7eb;border-radius:6px;'
+            f'margin-bottom:8px;background:#fff">'
+            f'<summary style="cursor:pointer;list-style:none;padding:10px 14px;'
+            f'display:flex;align-items:center;gap:6px;user-select:none">'
+            f'<span style="font-weight:600;font-size:0.87rem;color:#111827">{esc(proj)}</span>'
+            f'{flag_note}'
+            f'{summary_right}'
+            f'</summary>'
+            f'<div style="padding:0 14px 14px">{table_html}</div>'
+            f'</details>'
+        )
+
+    # Grand total footer
     parts.append(
         f'<div style="text-align:right;font-size:1rem;font-weight:700;color:#111827;'
         f'padding:10px 0;border-top:2px solid #e5e7eb;margin-top:8px">'
@@ -774,6 +813,9 @@ body {
 }
 details summary::-webkit-details-marker { display: none; }
 a { color: #2563eb; }
+table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table td[style*="color:#374151"] { white-space: normal; overflow: visible; }
+table td[style*="font-style:italic"] { white-space: normal; overflow: visible; }
 """
 
 _SEARCH_JS = """
@@ -925,9 +967,9 @@ def generate(
 
 {leakage_section}
 {compliance_section}
-{slack_section}
-{invoice_section}
 {budget_section}
+{invoice_section}
+{slack_section}
 {legacy_section}
 {quality_section}
 
