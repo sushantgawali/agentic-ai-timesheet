@@ -34,6 +34,8 @@ LABELS = {
     "CHECK-14": "BILLING ON PUBLIC HOLIDAY",
     "CHECK-15": "PROJECT BUDGET OVERRUN",
     "CHECK-16": "NAME AMBIGUITY / VARIANT",
+    "CHECK-17": "CLIENT HOLIDAY BILLING",
+    "CHECK-18": "LOW HOURS — ESCALATION",
 }
 
 SEVERITY_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
@@ -69,6 +71,14 @@ def run_all() -> tuple[list[dict], list[dict]]:
     slack_active   = ctx["slack_active"]
     git_active     = ctx["git_active"]
     public_holidays = ctx.get("public_holidays", set())
+
+    # Email-derived signals
+    email_signals        = ctx.get("email_signals", {})
+    extra_time_approvals = email_signals.get("extra_time_approvals", set())
+    extended_end_dates   = email_signals.get("extended_end_dates", {})
+    client_holiday_dates = email_signals.get("client_holiday_dates", set())
+    escalations          = email_signals.get("escalations", [])
+    email_assignments    = email_signals.get("email_assignments", set())
 
     issues: list[dict] = []
     hours_issues: list[dict] = []
@@ -116,7 +126,12 @@ def run_all() -> tuple[list[dict], list[dict]]:
             ))
 
         # CHECK-4: Unassigned project
-        if project and project not in user_projs.get(user, set()):
+        # Exempt if an onboarding email confirms this (user, project) assignment
+        email_assigned = any(
+            user.lower() in u and project.lower() in p
+            for u, p in email_assignments
+        )
+        if project and project not in user_projs.get(user, set()) and not email_assigned:
             issues.append(_issue(
                 "CHECK-4", "CRITICAL", user, date,
                 f"Unassigned project: '{project}'",
@@ -125,7 +140,13 @@ def run_all() -> tuple[list[dict], list[dict]]:
             ))
 
         # CHECK-5: Archived project
-        if project and proj_status.get(project, "") == "archived":
+        # Exempt if a date_extension email has pushed the project's end date beyond this billing date
+        proj_extended = any(
+            proj_key in project.lower() or project.lower() in proj_key
+            for proj_key, new_end in extended_end_dates.items()
+            if date <= new_end
+        )
+        if project and proj_status.get(project, "") == "archived" and not proj_extended:
             issues.append(_issue(
                 "CHECK-5", "CRITICAL", user, date,
                 f"Archived project: '{project}'",
@@ -179,9 +200,11 @@ def run_all() -> tuple[list[dict], list[dict]]:
             ))
 
         # CHECK-11: Weekend entry
+        # Exempt if extra_time approval email exists for this (user, date)
+        extra_time_approved = (user.lower(), date) in extra_time_approvals
         try:
             d = datetime.strptime(date, "%Y-%m-%d")
-            if d.weekday() >= 5:
+            if d.weekday() >= 5 and not extra_time_approved:
                 issues.append(_issue(
                     "CHECK-11", "INFO", user, date,
                     f"Weekend entry ({d.strftime('%A')}) — project={project}",
@@ -192,11 +215,22 @@ def run_all() -> tuple[list[dict], list[dict]]:
             pass
 
         # CHECK-14: Billing on a public holiday (only runs when holiday data is available)
-        if public_holidays and date in public_holidays:
+        # Exempt if extra_time approval exists for this (user, date)
+        if public_holidays and date in public_holidays and not extra_time_approved:
             issues.append(_issue(
                 "CHECK-14", "WARNING", user, date,
                 f"Billed on public holiday — project={project}",
                 f"Row {i}: {user} | {date} (public holiday) | project={project}",
+                project=project,
+            ))
+
+        # CHECK-17: Billing on a client-declared no-billing holiday
+        if client_holiday_dates and date in client_holiday_dates and not extra_time_approved:
+            issues.append(_issue(
+                "CHECK-17", "WARNING", user, date,
+                f"Billed on client holiday — project={project}",
+                f"Row {i}: {user} | {date} (client holiday) | project={project} | "
+                f"client declared no-billing day",
                 project=project,
             ))
 
@@ -324,6 +358,19 @@ def run_all() -> tuple[list[dict], list[dict]]:
                 f"Project={project} | hours: actual={actual_h:.1f} budget={budget_h:.0f} diff={h_diff:+.1f} | cost: actual=${actual_c:,.0f} budget=${budget_c:,.0f} diff=${c_diff:+,.0f}",
                 project=project,
             ))
+
+    # --- CHECK-18: Low hours — escalation emails ---
+    for esc in escalations:
+        issues.append(_issue(
+            "CHECK-18", "WARNING",
+            esc["user"], esc["date"],
+            f"Low hours escalation on {esc['project']}: "
+            f"expected {esc['expected_hrs']:.0f}h, logged {esc['actual_hrs']:.0f}h",
+            f"{esc['user']} | {esc['date']} | project={esc['project']} | "
+            f"expected={esc['expected_hrs']:.0f}h actual={esc['actual_hrs']:.0f}h | "
+            f"raised by escalation email — missing {esc['expected_hrs'] - esc['actual_hrs']:.0f}h",
+            project=esc["project"],
+        ))
 
     # --- CHECK-16: Name ambiguity / variant detection ---
     all_users    = sorted({r["user"] for r in ts if r.get("user")})

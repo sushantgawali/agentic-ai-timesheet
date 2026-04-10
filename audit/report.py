@@ -704,19 +704,19 @@ def _render_budget(
         "color:#6b7280;border-bottom:2px solid #e5e7eb;background:#f9fafb;white-space:nowrap"
     )
     budget_headers = [
-        ("Project",     "30%", "text-align:left"),
-        ("Status",      "10%", "text-align:center"),
-        ("Actual Hrs",  "10%", "text-align:right"),
-        ("Budget Hrs",  "10%", "text-align:right"),
-        ("Δ Hours",     "10%", "text-align:right"),
-        ("Actual Cost", "10%", "text-align:right"),
-        ("Budget Cost", "10%", "text-align:right"),
-        ("Δ Cost",      "10%", "text-align:right"),
+        ("Project",     "30%", "text-align:left",   "Project name from pm_projects.csv"),
+        ("Status",      "10%", "text-align:center",  "Budget utilisation: OVER >100%, NEAR 90–100%, % used <90%. 'no budget' means no cap is defined in pm_projects.csv."),
+        ("Actual Hrs",  "10%", "text-align:right",   "Total hours logged in timesheets for this project so far."),
+        ("Budget Hrs",  "10%", "text-align:right",   "Contracted hour cap from the SOW / pm_projects.csv (budget_hours column)."),
+        ("Δ Hours",     "10%", "text-align:right",   "Actual minus Budget hours. Red (+) = over budget. Green (−) = under budget."),
+        ("Actual Cost", "10%", "text-align:right",   "Actual hours × employee rates — what has been spent so far."),
+        ("Budget Cost", "10%", "text-align:right",   "Contracted cost ceiling from the SOW / pm_projects.csv (budget_cost column)."),
+        ("Δ Cost",      "10%", "text-align:right",   "Actual minus Budget cost in dollars. Red (+) = over budget. Green (−) = under budget."),
     ]
-    col_group = "".join(f'<col style="width:{w}">' for _, w, _ in budget_headers)
+    col_group = "".join(f'<col style="width:{w}">' for _, w, _, _t in budget_headers)
     th_cells  = "".join(
-        f'<th style="{th_base};{align}">{lbl}</th>'
-        for lbl, _, align in budget_headers
+        f'<th style="{th_base};{align};cursor:help" title="{tip}">{lbl}</th>'
+        for lbl, _, align, tip in budget_headers
     )
     table = (
         f'<div style="overflow:auto;max-height:320px;margin-top:10px;'

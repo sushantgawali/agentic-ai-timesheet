@@ -28,6 +28,8 @@ import zipfile
 from collections import defaultdict
 from typing import Optional
 
+from audit.email_signals import parse_email_signals as _parse_email_signals
+
 DATA_DIR = os.environ.get("DATA_DIR", "data/v3")
 DATA_VERSION = os.path.basename(DATA_DIR.rstrip("/"))
 
@@ -544,6 +546,8 @@ def load_all() -> dict:
         "public_holidays":  public_holidays,
         "calendar_leave_rows": cal_leave_rows,
         "email_rows":       email_rows,
+        # Parsed email signals (extra_time, date_extension, client_holiday, escalation, assignment)
+        "email_signals":    _parse_email_signals(email_rows),
         # Project budget & actuals
         "proj_budget_hours": proj_budget_hours,
         "proj_budget_cost":  proj_budget_cost,
