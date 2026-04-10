@@ -501,50 +501,82 @@ def _render_invoice(invoice: dict) -> str:
         + f'</div>'
     )
 
-    warning_html = "".join(
+    # Build per-project warning lookup
+    proj_warnings: dict = defaultdict(list)
+    for w in warnings:
+        matched = False
+        for proj_key in by_proj_keys_placeholder := []:  # filled below
+            pass
+        proj_warnings["__global__"].append(w)  # fallback, reassigned below
+
+    # Reset and properly assign warnings to projects
+    proj_warnings = defaultdict(list)
+    for w in warnings:
+        assigned = False
+        for proj_key in [l["project"] for l in lines]:
+            if proj_key.lower() in w.lower() or w.lower() in proj_key.lower():
+                proj_warnings[proj_key].append(w)
+                assigned = True
+                break
+        if not assigned:
+            proj_warnings["__global__"].append(w)
+
+    global_warnings_html = "".join(
         f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:4px;'
         f'padding:6px 12px;margin-bottom:6px;font-size:0.8rem;color:#78350f">'
         f'&#9888; {esc(w)}</div>'
-        for w in warnings
+        for w in proj_warnings.get("__global__", [])
     )
 
     by_proj = defaultdict(list)
     for l in lines:
         by_proj[l["project"]].append(l)
 
-    # Shared column widths for consistent alignment across all project tables
-    COL_WIDTHS = ["30%", "25%", "10%", "12%", "13%", "10%"]
+    # Fixed column widths — same across all project tables for consistent alignment
+    COL_WIDTHS  = ["28%", "22%", "10%", "13%", "12%", "15%"]
     COL_HEADERS = ["User", "Role", "Hours", "Rate ($/hr)", "Amount", "Flags"]
 
     def _col_group() -> str:
         return "".join(f'<col style="width:{w}">' for w in COL_WIDTHS)
 
-    td = "padding:7px 12px;border-bottom:1px solid #f3f4f6;vertical-align:middle"
-    th_style = (
+    td       = "padding:7px 12px;border-bottom:1px solid #f3f4f6;vertical-align:top"
+    th_base  = (
         "padding:8px 12px;font-size:0.7rem;text-transform:uppercase;letter-spacing:.04em;"
-        "color:#6b7280;border-bottom:2px solid #e5e7eb;white-space:nowrap;"
-        "background:#f9fafb;overflow:hidden;text-overflow:ellipsis"
+        "color:#6b7280;border-bottom:2px solid #e5e7eb;background:#f9fafb;"
+        "white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
     )
-    th_right = th_style + ";text-align:right"
+    th_left  = th_base + ";text-align:left"
+    th_right = th_base + ";text-align:right"
 
-    parts = [legend_html, warning_html]
-    for i, proj in enumerate(sorted(by_proj.keys())):
+    parts = [legend_html, global_warnings_html]
+    for proj in sorted(by_proj.keys()):
         proj_lines = by_proj[proj]
         proj_total = subtotals.get(proj, 0)
         flagged    = sum(1 for l in proj_lines if l.get("flags"))
 
-        # Build table rows
+        # Per-project warnings inside each accordion
+        proj_warn_html = "".join(
+            f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:4px;'
+            f'padding:6px 12px;margin-bottom:6px;font-size:0.8rem;color:#78350f">'
+            f'&#9888; {esc(w)}</div>'
+            for w in proj_warnings.get(proj, [])
+        )
+
         rows_html = ""
         for line in proj_lines:
-            flag_html = " ".join(
-                f'<span style="background:#fee2e2;color:#dc2626;padding:1px 6px;'
-                f'border-radius:3px;font-size:0.68rem;font-weight:600">{esc(fl)}</span>'
-                for fl in line.get("flags", [])
+            flags = line.get("flags", [])
+            flag_html = (
+                "<br>".join(
+                    f'<span style="display:inline-block;background:#fee2e2;color:#dc2626;'
+                    f'padding:1px 6px;border-radius:3px;font-size:0.68rem;font-weight:600;'
+                    f'margin-bottom:2px">{esc(fl)}</span>'
+                    for fl in flags
+                ) if flags else ""
             )
             rows_html += (
                 f'<tr>'
-                f'<td style="{td};font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{esc(line["user"])}</td>'
-                f'<td style="{td};color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{esc(line.get("role",""))}</td>'
+                f'<td style="{td};font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{esc(line["user"])}</td>'
+                f'<td style="{td};color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{esc(line.get("role",""))}</td>'
                 f'<td style="{td};text-align:right">{line["hours"]:.2f}</td>'
                 f'<td style="{td};text-align:right">{line["rate"]:.2f}</td>'
                 f'<td style="{td};text-align:right;font-weight:700;color:#16a34a">${line["amount"]:,.2f}</td>'
@@ -553,17 +585,16 @@ def _render_invoice(invoice: dict) -> str:
             )
 
         th_cells = (
-            f'<th style="{th_style}">{COL_HEADERS[0]}</th>'
-            f'<th style="{th_style}">{COL_HEADERS[1]}</th>'
+            f'<th style="{th_left}">{COL_HEADERS[0]}</th>'
+            f'<th style="{th_left}">{COL_HEADERS[1]}</th>'
             f'<th style="{th_right}">{COL_HEADERS[2]}</th>'
             f'<th style="{th_right}">{COL_HEADERS[3]}</th>'
             f'<th style="{th_right}">{COL_HEADERS[4]}</th>'
-            f'<th style="{th_style}">{COL_HEADERS[5]}</th>'
+            f'<th style="{th_left}">{COL_HEADERS[5]}</th>'
         )
 
         table_html = (
-            f'<div style="overflow:auto;max-height:280px;margin-top:10px;'
-            f'border:1px solid #e5e7eb;border-radius:6px">'
+            f'<div style="overflow:auto;max-height:280px;border:1px solid #e5e7eb;border-radius:6px">'
             f'<table style="width:100%;border-collapse:collapse;font-size:0.82rem;table-layout:fixed">'
             f'<colgroup>{_col_group()}</colgroup>'
             f'<thead style="position:sticky;top:0;z-index:1"><tr>{th_cells}</tr></thead>'
@@ -571,27 +602,25 @@ def _render_invoice(invoice: dict) -> str:
             f'</table></div>'
         )
 
-        # Summary line shown in accordion header
         flag_note = (
-            f'<span style="font-size:0.72rem;color:#dc2626;margin-left:8px">'
-            f'{flagged} flagged</span>'
+            f'<span style="font-size:0.72rem;color:#dc2626;margin-left:6px">'
+            f'⚠ {flagged} flagged</span>'
         ) if flagged else ""
 
-        summary_right = (
-            f'<span style="margin-left:auto;font-weight:700;color:#16a34a;font-size:0.9rem">'
-            f'${proj_total:,.2f}</span>'
-        )
+        chevron = '<span style="margin-left:auto;color:#9ca3af;font-size:0.75rem">▶ expand</span>'
 
         parts.append(
-            f'<details open style="border:1px solid #e5e7eb;border-radius:6px;'
+            f'<details style="border:1px solid #e5e7eb;border-radius:6px;'
             f'margin-bottom:8px;background:#fff">'
-            f'<summary style="cursor:pointer;list-style:none;padding:10px 14px;'
+            f'<summary style="cursor:pointer;list-style:none;padding:12px 16px;'
             f'display:flex;align-items:center;gap:6px;user-select:none">'
             f'<span style="font-weight:600;font-size:0.87rem;color:#111827">{esc(proj)}</span>'
             f'{flag_note}'
-            f'{summary_right}'
+            f'<span style="margin-left:auto;font-weight:700;color:#16a34a;font-size:0.9rem">'
+            f'${proj_total:,.2f}</span>'
+            f'<span style="color:#9ca3af;font-size:0.75rem;margin-left:10px">▶</span>'
             f'</summary>'
-            f'<div style="padding:0 14px 14px">{table_html}</div>'
+            f'<div style="padding:0 14px 14px">{proj_warn_html}{table_html}</div>'
             f'</details>'
         )
 
@@ -671,10 +700,34 @@ def _render_budget(
             f'</tr>'
         )
 
-    table  = _table_wrap(
-        ["Project", "Status", "Actual Hrs", "Budget Hrs", "Δ Hours",
-         "Actual Cost", "Budget Cost", "Δ Cost"],
-        rows_html,
+    th_base = (
+        "padding:8px 12px;font-size:0.7rem;text-transform:uppercase;letter-spacing:.04em;"
+        "color:#6b7280;border-bottom:2px solid #e5e7eb;background:#f9fafb;white-space:nowrap"
+    )
+    budget_headers = [
+        ("Project",     "30%", "text-align:left"),
+        ("Status",      "10%", "text-align:center"),
+        ("Actual Hrs",  "10%", "text-align:right"),
+        ("Budget Hrs",  "10%", "text-align:right"),
+        ("Δ Hours",     "10%", "text-align:right"),
+        ("Actual Cost", "10%", "text-align:right"),
+        ("Budget Cost", "10%", "text-align:right"),
+        ("Δ Cost",      "10%", "text-align:right"),
+    ]
+    col_group = "".join(f'<col style="width:{w}">' for _, w, _ in budget_headers)
+    th_cells  = "".join(
+        f'<th style="{th_base};{align}">{lbl}</th>'
+        for lbl, _, align in budget_headers
+    )
+    table = (
+        f'<div style="overflow:auto;max-height:320px;margin-top:10px;'
+        f'border:1px solid #e5e7eb;border-radius:6px">'
+        f'<table style="width:100%;min-width:800px;border-collapse:collapse;'
+        f'font-size:0.82rem;table-layout:fixed">'
+        f'<colgroup>{col_group}</colgroup>'
+        f'<thead style="position:sticky;top:0;z-index:1"><tr>{th_cells}</tr></thead>'
+        f'<tbody>{rows_html}</tbody>'
+        f'</table></div>'
     )
     source = _source_chips(["pm_projects.csv (budget_hours, budget_cost)", "kimai_timesheets.csv (actuals)"])
     return table + source
@@ -855,6 +908,7 @@ body {
   padding: 20px 24px; margin-bottom: 16px;
 }
 details summary::-webkit-details-marker { display: none; }
+details[open] > summary span:last-child { transform: rotate(90deg); display: inline-block; }
 a { color: #2563eb; }
 table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 table td[style*="color:#374151"] { white-space: normal; overflow: visible; }
