@@ -938,7 +938,7 @@ def _render_all_issues_table(
     for issue in issues:
         check = issue.get("check", "")
         label = LABELS.get(check, check)
-        source = f'{check} — {label}'
+        source = label.title() if label == label.upper() else label
         detail = issue.get("detail", "")
         if ": " in detail:
             detail = detail.split(": ", 1)[1]
@@ -986,22 +986,9 @@ def _render_all_issues_table(
             })
             _add_check_type(ftype.lower(), source)
 
-    # ---- Data quality issues from normalisation agent ----
-    if work_units_data:
-        for issue in work_units_data.get("data_quality_issues", []):
-            flag   = issue.get("flag", "")
-            source = flag.replace("_", " ").title()
-            sev    = issue.get("severity") or _DQ_FLAG_SEVERITY.get(flag, "INFO")
-            rows.append({
-                "severity": sev,
-                "source":   source,
-                "check_key": source,
-                "user":     issue.get("user", ""),
-                "date":     issue.get("date", "") or "",
-                "project":  issue.get("project", "") or "",
-                "detail":   issue.get("description", ""),
-            })
-            _add_check_type(source.lower(), source)
+    # Data quality issues from the normalisation agent are intentionally excluded here —
+    # they duplicate deterministic checks (CHECK-1, CHECK-2, CHECK-3, CHECK-11, etc.)
+    # and are already shown in their own Data Quality section of the report.
 
     if not rows:
         return '<p style="color:#6b7280;font-style:italic">No issues found.</p>'
