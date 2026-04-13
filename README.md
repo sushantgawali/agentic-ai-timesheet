@@ -26,8 +26,13 @@ audit_agent_sdk.py  (orchestrator)
         │
         ├── Phase 1 ──────────────────────────────────────────────────┐
         │   ├── Normalization Agent    → build_work_units             │
-        │   ├── Contract Agent         → build_contract_model         │  parallel
+        │   │     reads:  timesheets, employees, assignments,         │
+        │   │             leave (HR + calendar), projects, holidays   │  parallel
+        │   ├── Contract Agent         → build_contract_model         │
+        │   │     reads:  documents/sow/*.docx,                       │
+        │   │             documents/guidelines/*.pdf                  │
         │   └── Context Mining Agent   → extract_slack_signals        │
+        │         reads:  slack_activity.csv, timesheets              │
         │                                                              ┘
         │              writes to output/agent_state/ ──────────────────────────────┐
         │                     work_units.json                                       │
@@ -36,25 +41,26 @@ audit_agent_sdk.py  (orchestrator)
         │                                                              ┌────────────┘
         ├── Phase 2                                                    │ flat-file JSON store
         │   └── Reconciliation Agent   → reconcile_work               │ full findings saved here;
-        │         reads:  work_units + contract_model                  │ tool responses return only
+        │         reads:  work_units.json + contract_model.json       │ tool responses return only
         │         writes: reconciled.json                              │ summaries to avoid context
         │                                                              │ overflow
         ├── Phase 3 ──────────────────────────────────────────────────┤
         │   ├── Revenue Leakage Agent  → detect_revenue_leakage       │  parallel
-        │   │     reads:  reconciled + slack_signals + contract_model  │
+        │   │     reads:  reconciled.json + slack_signals.json        │
+        │   │             + contract_model.json                        │
         │   │     writes: leakage_findings.json                        │
         │   └── Compliance Agent       → run_compliance_checks         │
-        │         reads:  reconciled + contract_model                  │
+        │         reads:  reconciled.json + contract_model.json       │
         │         writes: compliance_findings.json                     │
         │                                                              │
         ├── Phase 4                                                    │
         │   └── Invoice Drafting Agent → build_invoice_draft           │
-        │         reads:  reconciled + contract_model                  │
+        │         reads:  reconciled.json + contract_model.json       │
         │         writes: invoice_draft.json                           │
         │                                                              │
         ├── Phase 5                                                    │
         │   └── Review & Alert Agent  → generate_full_report ─────────┘
-        │         reads:  all state files
+        │         reads:  all *.json state files
         │         writes: output/audit_*.html
         │
         └── Phase 6
