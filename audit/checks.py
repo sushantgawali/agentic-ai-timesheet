@@ -36,6 +36,15 @@ LABELS = {
     "CHECK-16": "NAME AMBIGUITY / VARIANT",
     "CHECK-17": "CLIENT HOLIDAY BILLING",
     "CHECK-18": "LOW HOURS — ESCALATION",
+    "CHECK-19": "ZERO DURATION ENTRY",
+    "CHECK-20": "EXCESSIVE DAILY HOURS",
+    "CHECK-21": "HALF DAY — NO LEAVE RECORD",
+    "CHECK-22": "SUSPICIOUSLY ROUND HOURS",
+    "CHECK-23": "RETROACTIVE BULK SUBMISSION",
+    "CHECK-24": "GHOST MEMBER — NOT ON ROSTER",
+    "CHECK-25": "CALENDAR LEAVE NOT IN HR",
+    "CHECK-26": "SLACK LEAVE — NOT IN SYSTEM",
+    "CHECK-27": "DUPLICATE DESCRIPTION",
 }
 
 SEVERITY_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
@@ -423,6 +432,208 @@ def run_all() -> tuple[list[dict], list[dict]]:
                 f"Project spellings: {', '.join(group)} — may split hours across "
                 f"duplicate project buckets. Normalise to a single canonical name.",
             ))
+
+    # --- CHECK-19: Zero duration entry ---
+    for i, row in enumerate(ts, start=2):
+        user    = row.get("user", "").strip()
+        date    = row.get("date", "").strip()
+        begin   = row.get("begin", "").strip()
+        end     = row.get("end", "").strip()
+        project = row.get("project", "").strip()
+        try:
+            h = float(row.get("hours", "") or 0)
+        except (ValueError, TypeError):
+            h = None
+        if h == 0.0 or (begin and end and begin == end):
+            issues.append(_issue(
+                "CHECK-19", "WARNING", user, date,
+                f"Zero duration entry — project={project}",
+                f"Row {i}: {user} | {date} | project={project} | hours={row.get('hours','')} | begin={begin} end={end}",
+                project=project,
+            ))
+
+    # --- CHECK-20: Excessive daily hours (>12h) ---
+    daily_hours: dict = defaultdict(float)
+    daily_rows_map: dict = defaultdict(list)
+    for i, row in enumerate(ts, start=2):
+        user = row.get("user", "").strip()
+        date = row.get("date", "").strip()
+        try:
+            h = float(row.get("hours", "") or 0)
+        except (ValueError, TypeError):
+            h = 0.0
+        daily_hours[(user, date)] += h
+        daily_rows_map[(user, date)].append(i)
+
+    for (user, date), total_h in daily_hours.items():
+        if total_h > 12:
+            issues.append(_issue(
+                "CHECK-20", "WARNING", user, date,
+                f"Excessive hours: {total_h:.1f}h logged in one day",
+                f"{user} | {date} | total={total_h:.1f}h (rows {daily_rows_map[(user,date)]})",
+            ))
+
+    # --- CHECK-21: Half day (<5h on a workday) with no leave record ---
+    for (user, date), total_h in daily_hours.items():
+        if 1.0 < total_h < 5.0:
+            try:
+                wd = datetime.strptime(date, "%Y-%m-%d").weekday()
+            except ValueError:
+                continue
+            if wd >= 5:
+                continue  # weekend — already caught by CHECK-11
+            if (user, date) in approved_leave:
+                continue  # partial-day leave is fine
+            issues.append(_issue(
+                "CHECK-21", "INFO", user, date,
+                f"Short day: only {total_h:.2f}h logged, no leave record",
+                f"{user} | {date} | logged={total_h:.2f}h | no HR or calendar leave entry found",
+            ))
+
+    # --- CHECK-22: Suspiciously round daily total (exactly 8.0h) ---
+    # Flag users where >= 5 days in the period have exactly 8.0h total (pattern, not one-off)
+    _round8_days: dict = defaultdict(list)
+    for (user, date), total_h in daily_hours.items():
+        if total_h == 8.0:
+            _round8_days[user].append(date)
+    for user, dates in _round8_days.items():
+        if len(dates) >= 5:
+            sample = ", ".join(sorted(dates)[:5])
+            issues.append(_issue(
+                "CHECK-22", "INFO", user, sorted(dates)[0],
+                f"Consistently exact 8.0h: {len(dates)} days (pattern suggests manual entry)",
+                f"{user} | {len(dates)} days with exactly 8.0h logged | sample dates: {sample}",
+            ))
+
+    # --- CHECK-23: Retroactive bulk submission (submitted_at >> date) ---
+    # Flag users who submitted >= 3 entries on the same submitted_at date that all
+    # cover work dates > 5 days earlier (bulk catch-up filing).
+    _submitted_buckets: dict = defaultdict(list)
+    for i, row in enumerate(ts, start=2):
+        user     = row.get("user", "").strip()
+        date     = row.get("date", "").strip()
+        sub_raw  = row.get("submitted_at", "").strip()
+        project  = row.get("project", "").strip()
+        if not sub_raw or not date:
+            continue
+        try:
+            sub_date  = datetime.strptime(sub_raw[:10], "%Y-%m-%d")
+            work_date = datetime.strptime(date, "%Y-%m-%d")
+            lag_days  = (sub_date - work_date).days
+        except ValueError:
+            continue
+        if lag_days > 5:
+            _submitted_buckets[(user, sub_raw[:10])].append((lag_days, date, project, i))
+
+    for (user, sub_date), entries in _submitted_buckets.items():
+        if len(entries) >= 2:
+            max_lag  = max(e[0] for e in entries)
+            dates    = ", ".join(sorted({e[1] for e in entries}))
+            issues.append(_issue(
+                "CHECK-23", "WARNING", user, sub_date,
+                f"Retroactive bulk filing: {len(entries)} entries submitted {max_lag}d late on {sub_date}",
+                f"{user} | {len(entries)} entries filed on {sub_date} covering dates: {dates} | max lag={max_lag}d",
+            ))
+
+    # --- CHECK-24: Ghost member — user in timesheets but not in employee roster ---
+    emp_usernames = set(emp_rate.keys()) | set(emp_status.keys())
+    ts_users_all  = {row.get("user", "").strip() for row in ts if row.get("user", "").strip()}
+    for user in sorted(ts_users_all - emp_usernames):
+        # Find all dates they billed
+        user_dates = sorted({r["date"] for r in ts if r.get("user", "").strip() == user})
+        issues.append(_issue(
+            "CHECK-24", "CRITICAL", user, user_dates[0] if user_dates else "",
+            f"User '{user}' not in employee roster — {len(user_dates)} timesheet days",
+            f"{user} | not found in hr_employees.csv | billed on {len(user_dates)} days: {', '.join(user_dates[:5])}",
+        ))
+
+    # --- CHECK-25: Calendar leave entry not reconciled with HR leave ---
+    cal_leave_rows = ctx.get("calendar_leave_rows", [])
+    hr_leave_set: set = set()
+    # Re-derive HR leave from approved_leave minus calendar contributions
+    # We store the raw hr_leave data separately: reload from role_map
+    _hr_leave_path = ctx.get("role_map", {}).get("leave", "")
+    from audit.loader import load_csv as _load_csv
+    _hr_leave_rows = _load_csv(_hr_leave_path)
+    for l in _hr_leave_rows:
+        if l.get("status", "").strip().lower() == "approved":
+            hr_leave_set.add((l.get("user", "").strip(), l.get("date", "").strip()))
+
+    for cl in cal_leave_rows:
+        status = cl.get("status", "").strip().lower()
+        if status not in ("confirmed", "approved"):
+            continue
+        user = cl.get("user", "").strip()
+        date = cl.get("date", "").strip()
+        if not user or not date:
+            continue
+        if (user, date) not in hr_leave_set:
+            leave_type = cl.get("leave_type", cl.get("title", "")).strip()
+            issues.append(_issue(
+                "CHECK-25", "WARNING", user, date,
+                f"Calendar leave ({leave_type}) has no matching HR leave record",
+                f"{user} | {date} | calendar entry: {leave_type} ({status}) | not found in hr_leave.csv",
+            ))
+
+    # --- CHECK-26: Slack message mentions leave/OOO but no leave record in any system ---
+    _LEAVE_KEYWORDS = (
+        "sick", "unwell", "ill", " oof", " ooo", "out of office",
+        "on leave", "taking leave", "going to be off", "won't be in",
+        "wont be in", "not coming in", "not available", "absent",
+        "medical", "doctor", "fever", "quarantine",
+    )
+    slack_rows_raw = ctx.get("ts", [])  # ts is timesheets; we need slack_active raw data
+    # Access raw Slack rows via the role_map path
+    _slack_path = ctx.get("role_map", {}).get("slack", "")
+    _slack_rows = _load_csv(_slack_path)
+    _all_leave: set = set(approved_leave)  # already union of HR + calendar
+
+    _seen_d26: set = set()
+    for sr in _slack_rows:
+        user = sr.get("user", "").strip()
+        date = sr.get("date", "").strip()
+        text = sr.get("text", "").lower()
+        if not user or not date or not text:
+            continue
+        if (user, date) in _all_leave:
+            continue
+        if (user, date) in _seen_d26:
+            continue
+        if any(kw in text for kw in _LEAVE_KEYWORDS):
+            raw_text = sr.get("text", "")
+            issues.append(_issue(
+                "CHECK-26", "INFO", user, date,
+                f"Slack message suggests leave but no leave record found",
+                f"{user} | {date} | message: {raw_text[:120]!r} | no entry in hr_leave.csv or calendar_leave.csv",
+            ))
+            _seen_d26.add((user, date))
+
+    # --- CHECK-27: Same description copy-pasted on consecutive days ---
+    _desc_dates: dict = defaultdict(list)
+    for row in ts:
+        user = row.get("user", "").strip()
+        desc = row.get("description", "").strip()
+        date = row.get("date", "").strip()
+        if user and desc and date and len(desc) > 10:
+            _desc_dates[(user, desc)].append(date)
+
+    _seen_e01: set = set()
+    for (user, desc), dates in _desc_dates.items():
+        dates_sorted = sorted(set(dates))
+        for idx in range(len(dates_sorted) - 1):
+            try:
+                d1 = datetime.strptime(dates_sorted[idx],     "%Y-%m-%d")
+                d2 = datetime.strptime(dates_sorted[idx + 1], "%Y-%m-%d")
+            except ValueError:
+                continue
+            if (d2 - d1).days == 1 and (user, dates_sorted[idx]) not in _seen_e01:
+                issues.append(_issue(
+                    "CHECK-27", "INFO", user, dates_sorted[idx],
+                    f"Description copy-pasted on consecutive days: {desc[:60]!r}",
+                    f"{user} | {dates_sorted[idx]} and {dates_sorted[idx+1]} | "
+                    f"identical description: {desc[:100]!r}",
+                ))
+                _seen_e01.add((user, dates_sorted[idx]))
 
     # Sort: severity, then user, then date
     issues.sort(key=lambda x: (SEVERITY_ORDER[x["severity"]], x["user"], x["date"]))

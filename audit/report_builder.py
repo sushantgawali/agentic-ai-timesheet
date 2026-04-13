@@ -58,6 +58,15 @@ CHECK_SOURCES = {
     "CHECK-13": ["kimai_timesheets.csv"],
     "CHECK-14": ["kimai_timesheets.csv", "calendar_holidays.csv"],
     "CHECK-15": ["kimai_timesheets.csv", "pm_projects.csv"],
+    "CHECK-19": ["kimai_timesheets.csv"],
+    "CHECK-20": ["kimai_timesheets.csv"],
+    "CHECK-21": ["kimai_timesheets.csv", "hr_leave.csv", "calendar_leave.csv"],
+    "CHECK-22": ["kimai_timesheets.csv"],
+    "CHECK-23": ["kimai_timesheets.csv (submitted_at)"],
+    "CHECK-24": ["kimai_timesheets.csv", "hr_employees.csv (missing)"],
+    "CHECK-25": ["calendar_leave.csv", "hr_leave.csv (missing)"],
+    "CHECK-26": ["slack_activity.csv", "hr_leave.csv (missing)", "calendar_leave.csv (missing)"],
+    "CHECK-27": ["kimai_timesheets.csv"],
 }
 
 # What data files are implicated per leakage/compliance finding type
@@ -98,6 +107,15 @@ CHECK_ACTIONS = {
     "CHECK-13": "Recalculate and correct the hours field to match begin–end timestamps.",
     "CHECK-14": "Confirm client pre-approved billing on this public holiday.",
     "CHECK-15": "Align with the client before including over-budget hours on the invoice.",
+    "CHECK-19": "Remove the zero-duration entry or correct the begin/end timestamps.",
+    "CHECK-20": "Verify with the employee that all hours were genuinely worked; split into correct days if multi-day work was logged on one entry.",
+    "CHECK-21": "Confirm with the employee why fewer than 5h were logged. If half-day leave, add a record in hr_leave.csv or calendar_leave.csv.",
+    "CHECK-22": "Ask the employee to break down how 8h was spent — exact round hours suggest manual entry rather than timer-based tracking.",
+    "CHECK-23": "Discuss late filing with the employee. If the work was genuine, note in the invoice narrative. If not, remove the entries.",
+    "CHECK-24": "Add the user to hr_employees.csv with a rate and status, or remove their timesheet entries if billing was unauthorised.",
+    "CHECK-25": "Sync the calendar leave entry to hr_leave.csv so HR records are complete before payroll processing.",
+    "CHECK-26": "Cross-check with the employee: if leave was taken, add an hr_leave entry. If the Slack message was misclassified, no action needed.",
+    "CHECK-27": "Ask the employee to provide specific descriptions per day. Copy-pasted entries suggest bulk retroactive filing.",
 }
 
 LEAKAGE_ACTIONS = {
@@ -248,6 +266,25 @@ def _table_wrap(headers: list, rows_html: str, col_widths: list = None, right_co
     )
 
 
+def _show_more_row(n_hidden: int, n_cols: int, td: str) -> str:
+    """Return a <tr> with a 'Show N more findings' button that reveals .extra-row siblings."""
+    onclick = (
+        "var tb=this.closest('tbody');"
+        "tb.querySelectorAll('.extra-row').forEach(function(r){r.style.display=''});"
+        "this.closest('tr').style.display='none'"
+    )
+    btn_style = (
+        "background:none;border:1px solid #d1d5db;border-radius:6px;"
+        "padding:5px 16px;cursor:pointer;color:#6b7280;font-size:0.82em"
+    )
+    return (
+        f'<tr class="show-more-row">'
+        f'<td colspan="{n_cols}" style="{td};text-align:center;padding:10px">'
+        f'<button onclick="{onclick}" style="{btn_style}">'
+        f'Show {n_hidden} more findings &#9660;</button></td></tr>'
+    )
+
+
 def _accordion(title: str, count: int, sev: str, body_html: str, open_: bool = False) -> str:
     """Inner accordion item — a collapsible finding group within a section."""
     color  = SEV_COLOR.get(sev, "#374151")
@@ -308,7 +345,7 @@ def _render_legacy_issues(issues: list, hours_issues: list) -> str:
         action  = CHECK_ACTIONS.get(check, "")
 
         rows_html = ""
-        for issue in items[:50]:
+        for idx, issue in enumerate(items):
             detail = issue.get("detail", "")
             clean  = detail
             if clean.startswith("Row ") and ": " in clean:
@@ -318,8 +355,9 @@ def _render_legacy_issues(issues: list, hours_issues: list) -> str:
             sev_i = issue.get("severity", sev)
             _du = esc((issue.get("user") or "").lower())
             _dp = esc((issue.get("project") or "").lower())
+            extra = ' class="extra-row" style="display:none"' if idx >= 50 else ''
             rows_html += (
-                f'<tr data-user="{_du}" data-project="{_dp}">'
+                f'<tr{extra} data-user="{_du}" data-project="{_dp}">'
                 f'<td style="{td}">{badge(sev_i)}</td>'
                 f'<td style="{td}">{esc(issue.get("user",""))}</td>'
                 f'<td style="{td}">{esc(issue.get("date",""))}</td>'
@@ -328,10 +366,7 @@ def _render_legacy_issues(issues: list, hours_issues: list) -> str:
                 f'</tr>'
             )
         if len(items) > 50:
-            rows_html += (
-                f'<tr class="truncation-row"><td colspan="5" style="{td};color:#9ca3af;font-style:italic">'
-                f'… and {len(items)-50} more findings.</td></tr>'
-            )
+            rows_html += _show_more_row(len(items) - 50, 5, td)
 
         table = _table_wrap(["Sev", "User", "Date", "Project", "Detail"], rows_html)
         body  = (_action_hint(action) if action else "") + _source_chips(sources) + table
@@ -341,23 +376,21 @@ def _render_legacy_issues(issues: list, hours_issues: list) -> str:
     c13 = [i for i in issues if i["check"] == "CHECK-13"]
     if c13:
         rows_html = ""
-        for issue in c13[:50]:
+        for idx, issue in enumerate(c13):
             detail = issue.get("detail", "")
             clean  = detail.split(": ", 1)[1] if ": " in detail else detail
             _du = esc((issue.get("user") or "").lower())
             _dp = esc((issue.get("project") or "").lower())
+            extra = ' class="extra-row" style="display:none"' if idx >= 50 else ''
             rows_html += (
-                f'<tr data-user="{_du}" data-project="{_dp}">'
+                f'<tr{extra} data-user="{_du}" data-project="{_dp}">'
                 f'<td style="{td}">{esc(issue.get("user",""))}</td>'
                 f'<td style="{td}">{esc(issue.get("date",""))}</td>'
                 f'<td style="{td};color:#374151">{esc(clean or issue.get("brief",""))}</td>'
                 f'</tr>'
             )
         if len(c13) > 50:
-            rows_html += (
-                f'<tr class="truncation-row"><td colspan="3" style="{td};color:#9ca3af;font-style:italic">'
-                f'… and {len(c13)-50} more findings.</td></tr>'
-            )
+            rows_html += _show_more_row(len(c13) - 50, 3, td)
         table = _table_wrap(["User", "Date", "Detail"], rows_html)
         body  = _action_hint(CHECK_ACTIONS["CHECK-13"]) + _source_chips(CHECK_SOURCES["CHECK-13"]) + table
         parts.append(_accordion("CHECK-13 — Hours Field Accuracy", len(c13), "INFO", body))
@@ -419,20 +452,21 @@ def _render_leakage(leakage: dict, slack_signals: dict = None) -> str:
             col_widths = ["11%", "8%", "11%", "auto", "13%"]
 
         rows_html = ""
-        for f in items[:50]:
+        for idx, f in enumerate(items):
             impact     = f.get("estimated_impact")
             impact_str = f"${impact:,.2f}" if impact else "—"
             date_val   = f.get("date", "") or ""
             month_val  = date_val[:7] if ftype == "contract_hours_underbilling" else date_val
             _du = esc((f.get("user") or "").lower())
             _dp = esc((f.get("project") or "").lower())
+            extra = ' class="extra-row" style="display:none"' if idx >= 50 else ''
             if ftype == "unlogged_work":
                 slack_info   = slack_msg_lookup.get((f.get("user", ""), f.get("date", "")), {})
                 channel      = slack_info.get("channel", "")
                 project_cell = f"#{channel}" if channel else "—"
                 msg_cell     = slack_info.get("text", "") or f.get("description", "")
                 rows_html += (
-                    f'<tr data-user="{_du}" data-project="{_dp}">'
+                    f'<tr{extra} data-user="{_du}" data-project="{_dp}">'
                     f'<td style="{td};font-weight:600">{esc(f.get("user",""))}</td>'
                     f'<td style="{td}">{esc(date_val)}</td>'
                     f'<td style="{td}">{esc(project_cell)}</td>'
@@ -441,7 +475,7 @@ def _render_leakage(leakage: dict, slack_signals: dict = None) -> str:
                 )
             else:
                 rows_html += (
-                    f'<tr data-user="{_du}" data-project="{_dp}">'
+                    f'<tr{extra} data-user="{_du}" data-project="{_dp}">'
                     f'<td style="{td};font-weight:600">{esc(f.get("user",""))}</td>'
                     f'<td style="{td}">{esc(month_val)}</td>'
                     + ("" if no_project else f'<td style="{td}">{esc(f.get("project","") or "")}</td>')
@@ -450,11 +484,7 @@ def _render_leakage(leakage: dict, slack_signals: dict = None) -> str:
                     + f'</tr>'
                 )
         if len(items) > 50:
-            cols = len(headers)
-            rows_html += (
-                f'<tr class="truncation-row"><td colspan="{cols}" style="{td};color:#9ca3af;font-style:italic">'
-                f'… and {len(items)-50} more findings.</td></tr>'
-            )
+            rows_html += _show_more_row(len(items) - 50, len(headers), td)
 
         title_str = label
         if total_impact:
@@ -495,11 +525,12 @@ def _render_compliance(compliance: dict) -> str:
             sources = sources + [f"Policy: {clause}"]
 
         rows_html = ""
-        for f in items[:50]:
+        for idx, f in enumerate(items):
             _du = esc((f.get("user") or "").lower())
             _dp = esc((f.get("project") or "").lower())
+            extra = ' class="extra-row" style="display:none"' if idx >= 50 else ''
             rows_html += (
-                f'<tr data-user="{_du}" data-project="{_dp}">'
+                f'<tr{extra} data-user="{_du}" data-project="{_dp}">'
                 f'<td style="{td};font-weight:600">{esc(f.get("user",""))}</td>'
                 f'<td style="{td}">{esc(f.get("date","") or "")}</td>'
                 f'<td style="{td}">{esc(f.get("project","") or "")}</td>'
@@ -507,10 +538,7 @@ def _render_compliance(compliance: dict) -> str:
                 f'</tr>'
             )
         if len(items) > 50:
-            rows_html += (
-                f'<tr class="truncation-row"><td colspan="4" style="{td};color:#9ca3af;font-style:italic">'
-                f'… and {len(items)-50} more findings.</td></tr>'
-            )
+            rows_html += _show_more_row(len(items) - 50, 4, td)
 
         table = _table_wrap(["User", "Date", "Project", "Description"], rows_html,
                             col_widths=["15%", "9%", "14%", "62%"])
@@ -527,12 +555,13 @@ def _render_slack_unlogged(slack: dict) -> str:
 
     td = "padding:7px 12px;border-bottom:1px solid #f3f4f6;vertical-align:top"
     rows_html = ""
-    for s in unlogged[:60]:
+    for idx, s in enumerate(unlogged):
         channel     = s.get("channel", "")
         channel_str = f"#{channel}" if channel else "—"
         _du = esc((s.get("user") or "").lower())
+        extra = ' class="extra-row" style="display:none"' if idx >= 60 else ''
         rows_html += (
-            f'<tr data-user="{_du}">'
+            f'<tr{extra} data-user="{_du}">'
             f'<td style="{td};font-weight:600">{esc(s["user"])}</td>'
             f'<td style="{td}">{esc(s["date"])}</td>'
             f'<td style="{td};color:#6b7280">{esc(channel_str)}</td>'
@@ -540,10 +569,7 @@ def _render_slack_unlogged(slack: dict) -> str:
             f'</tr>'
         )
     if len(unlogged) > 60:
-        rows_html += (
-            f'<tr><td colspan="4" style="{td};color:#9ca3af;font-style:italic">'
-            f'… and {len(unlogged)-60} more signals.</td></tr>'
-        )
+        rows_html += _show_more_row(len(unlogged) - 60, 4, td)
 
     table = _table_wrap(["User", "Date", "Channel", "Slack Message"], rows_html)
     body  = (
@@ -1865,7 +1891,7 @@ _FILTER_JS = """
 
     // 1. Filter data rows — only apply each axis if the row carries that attribute
     document.querySelectorAll('tr[data-user], tr[data-project]').forEach(function (tr) {
-      if (tr.classList.contains('truncation-row')) return;
+      if (tr.classList.contains('show-more-row')) return;
       total++;
       var uOk = !u || !tr.hasAttribute('data-user')    || tr.dataset.user.indexOf(u)    !== -1;
       var pOk = !p || !tr.hasAttribute('data-project') || tr.dataset.project.indexOf(p) !== -1;
@@ -1874,10 +1900,14 @@ _FILTER_JS = """
       if (show) visible++;
     });
 
-    // 2. Hide truncation rows when any filter is active
-    document.querySelectorAll('.truncation-row').forEach(function (tr) {
-      tr.style.display = active ? 'none' : '';
-    });
+    // 2. When filter active: reveal extra rows for matching; hide show-more buttons.
+    //    When cleared: re-hide extra rows and show the buttons again.
+    if (active) {
+      document.querySelectorAll('.show-more-row').forEach(function (tr) { tr.style.display = 'none'; });
+    } else {
+      document.querySelectorAll('.extra-row').forEach(function (tr) { tr.style.display = 'none'; });
+      document.querySelectorAll('.show-more-row').forEach(function (tr) { tr.style.display = ''; });
+    }
 
     // 3. Hide/show invoice project accordions (details[data-project]) by project filter
     document.querySelectorAll('details[data-project]').forEach(function (det) {
@@ -1891,7 +1921,7 @@ _FILTER_JS = """
     // 4. Auto open/close inner accordions based on whether they have visible rows
     document.querySelectorAll('details').forEach(function (det) {
       if (det.style.display === 'none') return;
-      var rows = det.querySelectorAll('tr[data-user]:not(.truncation-row), tr[data-project]:not(.truncation-row)');
+      var rows = det.querySelectorAll('tr[data-user]:not(.show-more-row), tr[data-project]:not(.show-more-row)');
       if (!rows.length) return;
       var hasVisible = Array.from(rows).some(function (r) { return r.style.display !== 'none'; });
       if (active) { det.open = hasVisible; }
@@ -1906,7 +1936,7 @@ _FILTER_JS = """
         countEl.textContent = countEl.dataset.orig;
         return;
       }
-      var rows = det.querySelectorAll('tr[data-user]:not(.truncation-row), tr[data-project]:not(.truncation-row)');
+      var rows = det.querySelectorAll('tr[data-user]:not(.show-more-row), tr[data-project]:not(.show-more-row)');
       var count = Array.from(rows).filter(function (r) { return r.style.display !== 'none'; }).length;
       countEl.textContent = count;
     });
