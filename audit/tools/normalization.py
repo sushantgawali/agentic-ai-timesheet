@@ -20,7 +20,10 @@ QUALITY_FLAGS = {
     "hours_mismatch":       "Declared hours differ from calculated hours by >0.15h",
     "weekend_entry":        "Entry falls on a Saturday or Sunday",
     "public_holiday_entry": "Entry falls on a public holiday",
+    "late_submission":      "Timesheet submitted more than 7 days after the work date",
 }
+
+_LATE_SUBMISSION_DAYS = 7
 
 
 def build_work_units() -> dict:
@@ -38,27 +41,30 @@ def build_work_units() -> dict:
         }
     """
     ctx = load_all()
-    ts              = ctx["ts"]
-    emp_rate        = ctx["emp_rate"]
-    emp_status      = ctx["emp_status"]
-    user_projs      = ctx["user_projs"]
-    approved_leave  = ctx["approved_leave"]
-    proj_status     = ctx["proj_status"]
-    public_holidays = ctx.get("public_holidays", set())
+    ts                     = ctx["ts"]
+    emp_rate               = ctx["emp_rate"]
+    emp_status             = ctx["emp_status"]
+    user_projs             = ctx["user_projs"]
+    approved_leave         = ctx["approved_leave"]
+    cal_leave_partial_days = ctx.get("cal_leave_partial_days", set())
+    proj_status            = ctx["proj_status"]
+    proj_end_date          = ctx.get("proj_end_date", {})
+    public_holidays        = ctx.get("public_holidays", set())
 
     work_units: list[dict] = []
     quality_issues: list[dict] = []
 
     for i, row in enumerate(ts, start=2):
-        user     = row.get("user", "").strip()
-        date     = row.get("date", "").strip()
-        begin    = row.get("begin", "").strip()
-        end      = row.get("end", "").strip()
-        hours_s  = row.get("hours", "").strip()
-        project  = row.get("project", "").strip()
-        activity = row.get("activity", "").strip()
-        desc     = row.get("description", "").strip()
-        rate_s   = row.get("hourly_rate", "").strip()
+        user         = row.get("user", "").strip()
+        date         = row.get("date", "").strip()
+        begin        = row.get("begin", "").strip()
+        end          = row.get("end", "").strip()
+        hours_s      = row.get("hours", "").strip()
+        project      = row.get("project", "").strip()
+        activity     = row.get("activity", "").strip()
+        desc         = row.get("description", "").strip()
+        rate_s       = row.get("hourly_rate", "").strip()
+        submitted_at = row.get("submitted_at", "").strip()
 
         flags: list[str] = []
 
@@ -117,11 +123,27 @@ def build_work_units() -> dict:
         if date in public_holidays:
             flags.append("public_holiday_entry")
 
+        # Late submission: submitted_at > 7 days after work date
+        if submitted_at and date:
+            try:
+                work_dt   = datetime.strptime(date, "%Y-%m-%d")
+                # submitted_at may be a full ISO datetime or a date
+                sub_str   = submitted_at[:10]
+                sub_dt    = datetime.strptime(sub_str, "%Y-%m-%d")
+                if (sub_dt - work_dt).days > _LATE_SUBMISSION_DAYS:
+                    flags.append("late_submission")
+            except ValueError:
+                pass
+
         # Contextual lookups
-        is_assigned        = bool(project and project in user_projs.get(user, set()))
-        is_on_leave        = (user, date) in approved_leave
-        is_deactivated     = emp_status.get(user, "") == "deactivated"
-        is_archived_proj   = proj_status.get(project, "") == "archived"
+        is_assigned               = bool(project and project in user_projs.get(user, set()))
+        is_on_leave               = (user, date) in approved_leave
+        is_partial_day_leave      = (user, date) in cal_leave_partial_days
+        is_deactivated            = emp_status.get(user, "") == "deactivated"
+        is_archived_proj          = proj_status.get(project, "") == "archived"
+        # Billing on a project past its contractual end date
+        proj_end                  = proj_end_date.get(project, "")
+        is_past_project_end_date  = bool(proj_end and date > proj_end)
 
         unit: dict = {
             "id":                f"WU-{i}",
@@ -133,12 +155,15 @@ def build_work_units() -> dict:
             "project":           project,
             "activity":          activity,
             "description":       desc,
+            "submitted_at":      submitted_at,
             "hours_declared":    hours_declared,
             "hours_calculated":  hours_calculated,
             "hourly_rate":       hourly_rate,
             "canonical_rate":    canonical_rate,
             "is_assigned":       is_assigned,
             "is_on_leave":       is_on_leave,
+            "is_partial_day_leave":      is_partial_day_leave,
+            "is_past_project_end_date":  is_past_project_end_date,
             "is_weekend":        "weekend_entry" in flags,
             "is_public_holiday": "public_holiday_entry" in flags,
             "employee_status":   emp_status.get(user, "active"),

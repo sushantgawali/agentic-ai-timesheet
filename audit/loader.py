@@ -438,8 +438,18 @@ def load_all() -> dict:
     email_rows     = load_csv(role_map.get("emails", ""))
 
     # --- employee lookups ---
-    emp_rate   = {e["username"]: e.get("rate", "").strip() for e in employees if "username" in e}
-    emp_status = {e["username"]: e.get("status", "").strip() for e in employees if "username" in e}
+    emp_rate          = {e["username"]: e.get("rate", "").strip() for e in employees if "username" in e}
+    emp_status        = {e["username"]: e.get("status", "").strip() for e in employees if "username" in e}
+    emp_contract_hrs: dict[str, float] = {}
+    for e in employees:
+        if "username" not in e:
+            continue
+        try:
+            hrs = float(e.get("contract_hrs", "") or 0)
+            if hrs > 0:
+                emp_contract_hrs[e["username"]] = hrs
+        except (ValueError, TypeError):
+            pass
 
     # --- project assignments ---
     user_projs: dict[str, set] = defaultdict(set)
@@ -455,11 +465,16 @@ def load_all() -> dict:
                 approved_leave.add((l["user"], l["date"]))
 
     # --- calendar_leave.csv as supplementary leave (confirmed / approved entries) ---
+    cal_leave_partial_days: set[tuple] = set()
     for cl in cal_leave_rows:
         status = cl.get("status", "").strip().lower()
         if status in ("confirmed", "approved"):
             if "user" in cl and "date" in cl:
                 approved_leave.add((cl["user"], cl["date"]))
+                # Track partial-day leave (all_day = false/no/0)
+                all_day_val = cl.get("all_day", "true").strip().lower()
+                if all_day_val in ("false", "no", "0", ""):
+                    cal_leave_partial_days.add((cl["user"], cl["date"]))
 
     # --- project catalogue ---
     proj_status: dict[str, str] = {}
@@ -491,9 +506,10 @@ def load_all() -> dict:
         if d:
             public_holidays.add(d)
 
-    # --- project budget from pm_projects.csv ---
+    # --- project budget and end_date from pm_projects.csv ---
     proj_budget_hours: dict[str, float] = {}
     proj_budget_cost:  dict[str, float] = {}
+    proj_end_date:     dict[str, str]   = {}
     for p in projects:
         pname = p.get("project_name") or p.get("name", "")
         if pname:
@@ -502,6 +518,9 @@ def load_all() -> dict:
                 proj_budget_cost[pname]  = float(p.get("budget_cost",  0) or 0)
             except (ValueError, TypeError):
                 pass
+            end_d = (p.get("end_date") or "").strip()
+            if end_d:
+                proj_end_date[pname] = end_d
 
     # --- project actuals from timesheets ---
     proj_actual_hours: dict[str, float] = defaultdict(float)
@@ -537,9 +556,12 @@ def load_all() -> dict:
         "ts":               ts,
         "emp_rate":         emp_rate,
         "emp_status":       emp_status,
+        "emp_contract_hrs": emp_contract_hrs,
         "user_projs":       user_projs,
         "approved_leave":   approved_leave,
+        "cal_leave_partial_days": cal_leave_partial_days,
         "proj_status":      proj_status,
+        "proj_end_date":    proj_end_date,
         "slack_active":     slack_active,
         "git_active":       git_active,
         "calendar":         calendar_rows,

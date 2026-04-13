@@ -43,7 +43,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from audit.loader import load_all, discover_csv_files, load_sow_documents, load_guidelines_documents, DATA_VERSION
-from audit.report import generate
+from audit.report_builder import generate
 
 app = Server("audit-tools")
 
@@ -75,6 +75,7 @@ def _load_state(key: str) -> dict | None:
         return None
     with open(path) as f:
         return json.load(f)
+
 
 
 def _require_state(key: str, caller: str) -> dict:
@@ -219,7 +220,7 @@ async def list_tools() -> list[Tool]:
             name="detect_revenue_leakage",
             description=(
                 "Revenue Leakage Agent — identify missed or incorrect billing across five types: "
-                "(1) rate_mismatch: billed at wrong hourly rate, "
+                "(1) rate_mismatch: billed at wrong hourly rate — compared against SOW contract rate first, HR canonical rate as fallback, "
                 "(2) unlogged_work: Slack signals of work done with no timesheet entry, "
                 "(3) cap_overage: hours logged beyond per-user monthly contract cap, "
                 "(4) scope_creep_untagged: informal scope-change Slack messages with no change order, "
@@ -276,7 +277,15 @@ async def list_tools() -> list[Tool]:
                     "key_takeaways_json": {
                         "type": "string",
                         "description": "JSON-encoded array of 3-7 top insight strings.",
-                    }
+                    },
+                    "executive_insights_json": {
+                        "type": "string",
+                        "description": (
+                            "JSON-encoded executive insights object with keys: "
+                            "top_revenue_risks, top_compliance_blockers, quick_wins, "
+                            "critical_human_review. Copy verbatim from your <insights_json> block."
+                        ),
+                    },
                 },
                 "required": [],
             },
@@ -443,7 +452,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # Phase 1 — Normalization                                           #
         # ---------------------------------------------------------------- #
         elif name == "build_work_units":
-            from audit.agents.normalization import build_work_units
+            from audit.tools.normalization import build_work_units
             result = build_work_units()
             _save_state("work_units", result)
             return ok({
@@ -465,7 +474,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # Phase 1 — Contract Interpreter                                    #
         # ---------------------------------------------------------------- #
         elif name == "build_contract_model":
-            from audit.agents.contract import build_contract_model
+            from audit.tools.contract import build_contract_model
             result = build_contract_model()
             _save_state("contract_model", result)
 
@@ -494,7 +503,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # Phase 1 — Context Mining (Slack)                                  #
         # ---------------------------------------------------------------- #
         elif name == "extract_slack_signals":
-            from audit.agents.slack_mining import run_slack_mining
+            from audit.tools.slack_mining import run_slack_mining
             result = run_slack_mining()
             _save_state("slack_signals", result)
             return ok({
@@ -521,7 +530,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         elif name == "reconcile_work":
             work_units_data  = _require_state("work_units",     "reconcile_work")
             contract_model   = _require_state("contract_model", "reconcile_work")
-            from audit.agents.reconciliation import reconcile_work as _reconcile
+            from audit.tools.reconciliation import reconcile_work as _reconcile
             result = _reconcile(work_units_data["work_units"], contract_model)
             _save_state("reconciled", result)
             return ok({
@@ -548,7 +557,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             slack_signals  = _require_state("slack_signals",  "detect_revenue_leakage")
             contract_model = _require_state("contract_model", "detect_revenue_leakage")
             ctx            = load_all()
-            from audit.agents.leakage import detect_revenue_leakage as _leakage
+            from audit.tools.leakage import detect_revenue_leakage as _leakage
             result = _leakage(
                 reconciled=reconciled,
                 slack_signals=slack_signals,
@@ -581,7 +590,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         elif name == "run_compliance_checks":
             reconciled     = _require_state("reconciled",     "run_compliance_checks")
             contract_model = _require_state("contract_model", "run_compliance_checks")
-            from audit.agents.compliance import run_compliance_checks as _compliance
+            from audit.tools.compliance import run_compliance_checks as _compliance
             result = _compliance(reconciled=reconciled, contract_model=contract_model)
             _save_state("compliance_findings", result)
             return ok({
@@ -607,7 +616,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         elif name == "build_invoice_draft":
             reconciled     = _require_state("reconciled",     "build_invoice_draft")
             contract_model = _require_state("contract_model", "build_invoice_draft")
-            from audit.agents.invoice import build_invoice_draft as _invoice
+            from audit.tools.invoice import build_invoice_draft as _invoice
             result = _invoice(reconciled=reconciled, contract_model=contract_model)
             _save_state("invoice_draft", result)
             flagged_lines = [l for l in result["invoice_lines"] if l.get("flags")]
@@ -645,6 +654,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             except Exception:
                 takeaways = [raw] if raw != "[]" else []
 
+            raw_insights = arguments.get("executive_insights_json", "") or ""
+            executive_insights: dict = {}
+            if raw_insights:
+                try:
+                    executive_insights = json.loads(raw_insights)
+                    if not isinstance(executive_insights, dict):
+                        executive_insights = {}
+                except Exception:
+                    executive_insights = {}
+
             # Load all intelligence-pipeline state
             leakage          = _load_state("leakage_findings")
             compliance       = _load_state("compliance_findings")
@@ -668,6 +687,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 invoice_draft=invoice,
                 slack_signals=slack_state,
                 work_units_data=work_units_state,
+                reconciled_data=_load_state("reconciled"),
+                executive_insights=executive_insights or None,
             )
             return ok({
                 "status":                 "written",

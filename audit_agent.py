@@ -20,7 +20,7 @@ import anthropic
 
 from audit.checks import run_all
 from audit.loader import load_all, DATA_VERSION
-from audit.report import generate
+from audit.report_builder import generate
 
 # ---------------------------------------------------------------------------
 # Tool definitions — what Claude can call

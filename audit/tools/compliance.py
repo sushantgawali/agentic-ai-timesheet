@@ -1,13 +1,15 @@
 """
 Compliance & Risk Agent logic.
 
-Checks contract adherence across six risk categories:
+Checks contract adherence across eight risk categories:
   1. unauthorized_overtime         — >8h/day without written approval
   2. leave_day_billing             — timesheet entry on an approved leave day
   3. public_holiday_billing        — billing on a public holiday without approval
   4. deactivated_employee_billing  — deactivated user has timesheet entries
   5. archived_project_billing      — billing to an archived/closed project
   6. unassigned_project_billing    — resource not assigned but billing to project
+  7. project_billing_after_end_date — hours logged after project's contractual end date
+  8. partial_day_leave_billing     — billing a full workday when leave is marked partial-day
 """
 from __future__ import annotations
 
@@ -123,6 +125,22 @@ def run_compliance_checks(
                 f"{wu['user']} billed to '{wu['project']}' but is not assigned to "
                 f"it in the HR system — may cause invoice dispute",
                 None, "CRITICAL",
+            )
+
+        if wu.get("is_past_project_end_date") and wu.get("project"):
+            _add(
+                "project_billing_after_end_date", wu,
+                f"{wu['user']} billed {wu['hours_declared']}h to '{wu['project']}' on "
+                f"{wu['date']} — project has passed its contractual end date in pm_projects.csv",
+                "project_end_date_policy", "CRITICAL",
+            )
+
+        if wu.get("is_partial_day_leave") and wu.get("hours_declared", 0) >= 6.0:
+            _add(
+                "partial_day_leave_billing", wu,
+                f"{wu['user']} billed {wu['hours_declared']}h on {wu['date']} but "
+                f"calendar_leave.csv marks this as a partial-day leave — verify billable hours",
+                "leave_policy", "WARNING",
             )
 
     # ---- Summarise ----

@@ -1,11 +1,12 @@
 """
 Revenue Leakage Agent logic.
 
-Detects four categories of revenue leakage:
-  1. rate_mismatch       — work billed at wrong rate (under- or over-billing)
-  2. unlogged_work       — Slack signals of work done with no timesheet entry
-  3. cap_overage         — hours logged beyond the per-user monthly contract cap
-  4. scope_creep_untagged — scope change signals in Slack with no formal change order
+Detects five categories of revenue leakage:
+  1. rate_mismatch              — work billed at wrong rate (under- or over-billing)
+  2. unlogged_work              — Slack signals of work done with no timesheet entry
+  3. cap_overage                — hours logged beyond the per-user monthly contract cap
+  4. scope_creep_untagged       — scope change signals in Slack with no formal change order
+  5. contract_hours_underbilling — employee billed significantly fewer hours than their HR contract
 """
 from collections import defaultdict
 
@@ -16,6 +17,7 @@ def detect_revenue_leakage(
     contract_model:    dict,
     proj_actual_hours: dict,
     proj_budget_hours: dict,
+    loader_context:    dict = None,
 ) -> dict:
     """
     Identify all revenue leakage signals and estimate their financial impact.
@@ -37,30 +39,72 @@ def detect_revenue_leakage(
     non_billable_units = reconciled.get("non_billable_units", [])
 
     # ------------------------------------------------------------------ #
+    # Build (user_lower, project_lower) → (sow_rate, sow_project_name)   #
+    # lookup so rate mismatch can prefer the SOW-agreed rate over the     #
+    # HR canonical rate.                                                  #
+    # ------------------------------------------------------------------ #
+    sow_rate_lookup: dict[tuple[str, str], tuple[float, str]] = {}
+    for pname, pdata in projects_model.items():
+        for key, member in pdata.get("team_map", {}).items():
+            sow_rate = member.get("rate", 0.0) or 0.0
+            if sow_rate > 0:
+                sow_rate_lookup[(key.lower(), pname.lower())] = (sow_rate, pname)
+
+    def _sow_rate_for(user: str, project: str) -> tuple[float, str]:
+        """Return (sow_rate, sow_project_name) or (0.0, '') if not found."""
+        u = user.lower()
+        p = project.lower()
+        # Prefer a match on both user and project
+        for (k, pn), (r, full_pname) in sow_rate_lookup.items():
+            if (k in u or u in k) and (pn in p or p in pn):
+                return r, full_pname
+        # Fall back to user-only match (rate applies across projects)
+        for (k, _pn), (r, full_pname) in sow_rate_lookup.items():
+            if k in u or u in k:
+                return r, full_pname
+        return 0.0, ""
+
+    # ------------------------------------------------------------------ #
     # 1. Rate mismatches                                                  #
     # ------------------------------------------------------------------ #
     for wu in billable_units:
         rate      = wu.get("hourly_rate", 0.0)
         canonical = wu.get("canonical_rate", 0.0)
-        if canonical > 0 and rate > 0 and abs(rate - canonical) > 0.01:
-            hours     = wu.get("hours_declared", 0.0)
-            diff      = canonical - rate          # positive → under-billed
-            impact    = round(hours * abs(diff), 2)
-            direction = "under-billed" if diff > 0 else "over-billed"
-            findings.append({
-                "type":             "rate_mismatch",
-                "subtype":          direction,
-                "user":             wu["user"],
-                "date":             wu["date"],
-                "project":          wu["project"],
-                "description": (
-                    f"{wu['user']} billed at ${rate}/hr vs canonical ${canonical}/hr "
-                    f"({direction}) — {hours}h → estimated impact: ${impact:,.2f}"
-                ),
-                "estimated_impact": impact,
-                "severity":         "CRITICAL" if impact > 100 else "WARNING",
-                "work_unit_id":     wu["id"],
-            })
+        sow_r, sow_proj = _sow_rate_for(wu["user"], wu["project"])
+
+        # Priority: SOW rate → HR canonical rate
+        if sow_r > 0:
+            expected_rate   = sow_r
+            expected_source = f"SOW ({sow_proj})"
+        elif canonical > 0:
+            expected_rate   = canonical
+            expected_source = "HR canonical"
+        else:
+            continue  # no reference rate — nothing to compare against
+
+        if rate <= 0 or abs(rate - expected_rate) <= 0.01:
+            continue
+
+        hours     = wu.get("hours_declared", 0.0)
+        diff      = expected_rate - rate          # positive → under-billed
+        impact    = round(hours * abs(diff), 2)
+        direction = "under-billed" if diff > 0 else "over-billed"
+        findings.append({
+            "type":             "rate_mismatch",
+            "subtype":          direction,
+            "user":             wu["user"],
+            "date":             wu["date"],
+            "project":          wu["project"],
+            "description": (
+                f"{wu['user']} billed at ${rate}/hr vs {expected_source} rate "
+                f"${expected_rate}/hr ({direction}) — {hours}h → "
+                f"estimated impact: ${impact:,.2f}"
+            ),
+            "estimated_impact": impact,
+            "severity":         "CRITICAL" if impact > 100 else "WARNING",
+            "work_unit_id":     wu["id"],
+            "rate_source":      expected_source,
+        })
 
     # ------------------------------------------------------------------ #
     # 2. Unlogged work (Slack evidence)                                   #
@@ -170,6 +214,63 @@ def detect_revenue_leakage(
                 ),
                 "estimated_impact": impact,
                 "severity": "WARNING",
+            })
+
+    # ------------------------------------------------------------------ #
+    # 6. Contract hours underbilling                                      #
+    # Employees with a contract_hrs commitment who billed materially      #
+    # fewer hours in a month than their contract specifies.               #
+    # ------------------------------------------------------------------ #
+    if loader_context is None:
+        try:
+            from audit.loader import load_all as _load_all
+            loader_context = _load_all()
+        except Exception:
+            loader_context = {}
+    emp_contract_hrs: dict = loader_context.get("emp_contract_hrs", {})
+
+    if emp_contract_hrs:
+        # Aggregate billable hours per (user, month)
+        user_month_hours: dict = defaultdict(float)
+        for wu in billable_units:
+            month = wu["date"][:7] if len(wu.get("date", "")) >= 7 else "unknown"
+            user_month_hours[(wu["user"], month)] += wu.get("hours_declared", 0.0)
+
+        # contract_hrs represents the standard daily hours (e.g. 8h/day).
+        # Monthly expectation = daily_hrs × 22 working days (avg).
+        _WORKING_DAYS_PER_MONTH = 22
+        _UNDERBILL_THRESHOLD = 0.70  # flag if actual < 70% of expected
+
+        for (user, month), billed_h in user_month_hours.items():
+            contract_daily = emp_contract_hrs.get(user, 0.0)
+            if contract_daily <= 0:
+                continue
+            expected_monthly = round(contract_daily * _WORKING_DAYS_PER_MONTH, 1)
+            if billed_h >= expected_monthly * _UNDERBILL_THRESHOLD:
+                continue
+            shortfall = round(expected_monthly - billed_h, 1)
+            # Use canonical rate for impact estimate
+            rate = 0.0
+            for wu in billable_units:
+                if wu["user"] == user:
+                    rate = wu.get("canonical_rate") or wu.get("hourly_rate") or 0.0
+                    if rate:
+                        break
+            impact = round(shortfall * rate, 2) if rate else None
+            findings.append({
+                "type":    "contract_hours_underbilling",
+                "subtype": "hours_below_contract",
+                "user":    user,
+                "date":    f"{month}-01",
+                "project": None,
+                "description": (
+                    f"{user} billed {billed_h:.1f}h in {month} vs contract expectation of "
+                    f"{expected_monthly:.1f}h/month ({contract_daily}h/day × {_WORKING_DAYS_PER_MONTH} days) — "
+                    f"{shortfall:.1f}h shortfall"
+                    + (f", estimated impact: ${impact:,.2f}" if impact else "")
+                ),
+                "estimated_impact": impact,
+                "severity":         "WARNING",
             })
 
     # ---- Summarise ----

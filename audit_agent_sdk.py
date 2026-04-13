@@ -34,6 +34,7 @@ Optional env vars:
 """
 import os
 import sys
+import time
 from pathlib import Path
 
 import anyio
@@ -46,6 +47,8 @@ from claude_agent_sdk import (
     query,
 )
 
+from audit import prompts
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -55,6 +58,28 @@ REVIEW_MODEL = os.environ.get("REVIEW_MODEL", "claude-sonnet-4-6")
 DATA_DIR     = os.environ.get("DATA_DIR", "data")
 OUT_DIR      = os.environ.get("OUT_DIR",  "output")
 SERVER_SCRIPT = str(Path(__file__).parent / "audit" / "mcp_server.py")
+
+# Set RESUME=1 to skip any agent whose state file already exists in OUT_DIR/agent_state/.
+# The agent's previous text summary is restored from a companion .txt cache file.
+RESUME = os.environ.get("RESUME", "0") == "1"
+
+# Seconds to wait between launching parallel agents in the same phase.
+# Helps avoid simultaneous request spikes when hitting rate limits.
+# Set to 0 to disable.
+STAGGER_DELAY = float(os.environ.get("STAGGER_DELAY", "3"))
+
+# Maps agent label → agent_state/<key>.json produced by that agent.
+# Used by the resume logic to decide whether to skip a run.
+_STATE_FILE_MAP: dict[str, str] = {
+    "Normalization Agent":    "work_units",
+    "Contract Agent":         "contract_model",
+    "Context Mining Agent":   "slack_signals",
+    "Reconciliation Agent":   "reconciled",
+    "Revenue Leakage Agent":  "leakage_findings",
+    "Compliance Agent":       "compliance_findings",
+    "Invoice Drafting Agent": "invoice_draft",
+    "Digest Agent":           "ai_digest",
+}
 
 
 def _python_exe() -> str:
@@ -88,252 +113,82 @@ def _mcp_options(max_turns: int = 6, model: str = MODEL) -> ClaudeAgentOptions:
     )
 
 
-async def _run_agent(label: str, prompt: str, max_turns: int = 6, model: str = MODEL) -> str:
-    """
-    Run a single sub-agent, stream its output to stdout, and return
-    the concatenated text from all AssistantMessage blocks.
-    """
-    print(f"\n{'='*60}", flush=True)
-    print(f"[{label}] Starting...", flush=True)
-    print(f"{'='*60}", flush=True)
-
-    text_parts: list[str] = []
-    options = _mcp_options(max_turns=max_turns, model=model)
-
-    async for message in query(prompt=prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    print(block.text, end="", flush=True)
-                    text_parts.append(block.text)
-        elif isinstance(message, ResultMessage):
-            cost_usd = getattr(message, "cost_usd", None)
-            cost = f" | cost: ${cost_usd:.4f}" if cost_usd else ""
-            print(f"\n[{label}] Done{cost}.", flush=True)
-
-    return "".join(text_parts)
-
-
-# ---------------------------------------------------------------------------
-# Agent prompts
-# ---------------------------------------------------------------------------
-
-_NORMALIZATION_PROMPT = """
-You are the Normalization & Linking Agent in a multi-agent revenue intelligence pipeline.
-
-Your job: Transform all raw timesheet data into enriched WorkUnit records so that downstream
-agents can reason about billability, compliance, and revenue leakage without touching raw CSVs.
-
-Steps:
-1. Call discover_data_files to understand what data is available.
-2. Call build_work_units to normalize all timesheet rows into WorkUnits.
-3. Review the quality_summary in the response:
-   - Identify which quality flags are most prevalent (missing_activity, hours_mismatch, etc.)
-   - Note which users or projects have the most data quality issues.
-4. Print a concise summary covering:
-   - Total entries processed and distinct users/projects.
-   - Top 3 data quality issues by count.
-   - Any users with multiple quality flags (high-risk for billing disputes).
-
-Do NOT call any other tools. Your output is saved automatically for downstream agents.
-""".strip()
-
-_CONTRACT_PROMPT = """
-You are the Contract Interpreter Agent in a multi-agent revenue intelligence pipeline.
-
-Your job: Extract structured billing rules from all SOW and guideline documents so that
-downstream agents can validate timesheets against contract terms.
-
-Steps:
-1. Call build_contract_model to parse all SOW and guideline documents.
-2. Review the returned ContractModel:
-   - List each project with its monthly_cap_hours and team roster.
-   - Note the global_rules (overtime approval, billing exclusions, etc.).
-   - Flag any projects where monthly_cap_hours is None (no cap defined — risk of over-billing).
-   - Flag any ambiguous or missing clauses (e.g., no end_date, no rate for a team member).
-3. Print a concise summary covering:
-   - How many SOWs and guideline docs were parsed.
-   - Per-project: billing type, monthly cap hours, team size.
-   - Global rules that will affect compliance checks.
-   - Any missing or ambiguous contract data to watch for.
-
-Do NOT call any other tools. Your output is saved automatically for downstream agents.
-""".strip()
-
-_SLACK_MINING_PROMPT = """
-You are the Context Mining Agent (Slack) in a multi-agent revenue intelligence pipeline.
-
-Your job: Classify Slack messages to find hidden work signals, approvals, and scope changes
-that may represent billable activity not yet recorded in timesheets.
-
-Steps:
-1. Call extract_slack_signals to classify all Slack messages.
-2. Review the returned signals:
-   - work_without_timesheet: these are your primary revenue leakage signals.
-   - scope_change signals: informal requests for extra work needing change orders.
-   - approval signals: verbal go-aheads that may authorise overtime or scope.
-   - escalation signals: urgent work that often generates unlogged hours.
-3. Print a concise summary covering:
-   - Total signals found per type.
-   - Top users with unlogged work signals (by count).
-   - Notable scope change or escalation messages worth highlighting.
-   - Any channels with especially high signal density.
-
-Do NOT call any other tools. Your output is saved automatically for downstream agents.
-""".strip()
-
-_RECONCILIATION_PROMPT = """
-You are the Work Reconciliation Agent in a multi-agent revenue intelligence pipeline.
-
-Your job: Align every WorkUnit with project assignments and the contract model to determine
-what is billable, detect duplicates, and flag role mismatches before invoicing.
-
-Prerequisites: build_work_units and build_contract_model must have run already.
-
-Steps:
-1. Call reconcile_work to align work units with assignments and contract rules.
-2. Review the reconciliation results:
-   - Compare billable_count vs non_billable_count — a high non-billable ratio is a red flag.
-   - Check duplicate_count — duplicates inflate hours and must be removed before invoicing.
-   - Check role_mismatches — users billing to projects they're not contracted for.
-   - Review project_totals to identify projects with significant non-billable hours.
-3. Print a concise summary covering:
-   - Total billable vs non-billable hours (and why hours are non-billable).
-   - Duplicate entries found (if any).
-   - Role mismatches that could cause invoice disputes.
-   - Projects with the highest non-billable hour ratio.
-
-Do NOT call any other tools. Your output is saved automatically for downstream agents.
-""".strip()
-
-_LEAKAGE_PROMPT = """
-You are the Revenue Leakage Agent in a multi-agent revenue intelligence pipeline.
-
-Your job: Identify all forms of missed or incorrect billing so that revenue can be recovered
-before the invoice is sent. Every finding should be concrete, actionable, and financially
-quantified where possible.
-
-Prerequisites: reconcile_work and extract_slack_signals must have run already.
-
-Steps:
-1. Call detect_revenue_leakage to find all leakage signals.
-2. Analyse the findings by type:
-   - rate_mismatch: Who is being under-billed or over-billed and by how much?
-   - unlogged_work: Which Slack-evidenced work has no timesheet entry?
-   - cap_overage: Which users have logged beyond their monthly contract cap?
-   - scope_creep_untagged: Which informal scope expansions have no change order?
-3. Print a concise summary covering:
-   - Total estimated revenue at risk (USD).
-   - Top 3 leakage signals by financial impact.
-   - Any users who appear repeatedly across multiple leakage types.
-   - Recommended actions before invoicing (e.g., "Chase timesheet from X for Y date").
-
-Do NOT call any other tools. Your findings are saved automatically.
-""".strip()
-
-_COMPLIANCE_PROMPT = """
-You are the Compliance & Risk Agent in a multi-agent revenue intelligence pipeline.
-
-Your job: Identify every contract and policy violation that could cause invoice rejection,
-client disputes, or legal/audit risk. Every finding must be resolved before the invoice is sent.
-
-Prerequisites: reconcile_work and build_contract_model must have run already.
-
-Steps:
-1. Call run_compliance_checks to evaluate all compliance rules.
-2. Analyse findings by severity:
-   - CRITICAL: must be fixed before invoicing (leave-day billing, deactivated employee, archived project).
-   - WARNING: should be reviewed and documented (overtime, public holiday, unassigned project).
-3. Print a concise summary covering:
-   - CRITICAL blocking issues that prevent invoice from being sent.
-   - WARNING items that need documentation or approval records.
-   - Which contract clauses are being violated (e.g., "overtime_requires_approval").
-   - Recommended resolution steps for each finding type.
-
-Do NOT call any other tools. Your findings are saved automatically.
-""".strip()
-
-_INVOICE_PROMPT = """
-You are the Invoice Drafting Agent in a multi-agent revenue intelligence pipeline.
-
-Your job: Produce a clean, accurate invoice draft from the billable work units, applying
-contract rates and flagging any line items that need human review before sending.
-
-Prerequisites: reconcile_work and build_contract_model must have run already.
-
-Steps:
-1. Call build_invoice_draft to generate invoice line items.
-2. Review the draft:
-   - Grand total and per-project subtotals.
-   - Lines with rate_fallback flag: contract rate unavailable — verify rate is correct.
-   - Lines with role_mismatch flag: user not in contract team — needs approval before billing.
-   - Any warnings about missing rate data.
-3. Print a concise summary covering:
-   - Invoice grand total and billable hours total.
-   - Project-level breakdown of subtotals.
-   - Lines requiring human review before sending.
-   - Any adjustments recommended based on leakage or compliance findings.
-
-Do NOT call any other tools. Your draft is saved automatically.
-""".strip()
-
-
-def _review_prompt(
-    norm_summary:       str,
-    contract_summary:   str,
-    slack_summary:      str,
-    recon_summary:      str,
-    leakage_summary:    str,
-    compliance_summary: str,
-    invoice_summary:    str,
+async def _run_agent(
+    label: str, prompt: str, max_turns: int = 6, model: str = MODEL,
 ) -> str:
-    return f"""
-You are the Review & Alert Agent — the final agent in the revenue intelligence pipeline.
+    """
+    Run a single sub-agent, stream its output, and return the concatenated text.
 
-Your job: Synthesise all upstream agent outputs into a final actionable report that a billing
-manager can act on immediately. Generate the HTML report with key takeaways, then print a
-plain-text executive summary.
+    Resume behaviour (RESUME=1):
+      If this agent has a known state file key in _STATE_FILE_MAP and the
+      corresponding JSON file already exists, the agent is skipped and the
+      cached summary (stored as <key>_summary.txt) is returned instead.
 
-UPSTREAM AGENT OUTPUTS
-======================
-[Normalization Agent]
-{norm_summary}
+    Retry behaviour:
+      On transient errors (overload, connection issues), retries up to 2 times
+      with exponential backoff (10s, 30s).
+    """
+    state_key = _STATE_FILE_MAP.get(label)
+    if RESUME and state_key:
+        state_path   = Path(OUT_DIR) / "agent_state" / f"{state_key}.json"
+        summary_path = Path(OUT_DIR) / "agent_state" / f"{state_key}_summary.txt"
+        if state_path.exists():
+            cached = summary_path.read_text() if summary_path.exists() else (
+                f"[skipped — state already exists: {state_path}]"
+            )
+            print(f"[AGENT_SKIP] {label}", flush=True)
+            return cached
 
-[Contract Agent]
-{contract_summary}
+    print(f"[AGENT_START] {label}", flush=True)
 
-[Context Mining Agent]
-{slack_summary}
+    _MAX_RETRIES   = 2
+    _RETRY_DELAYS  = [10, 30]  # seconds between attempts 1→2, 2→3
+    _TRANSIENT_KEYWORDS = ("overloaded", "overload", "rate limit", "429",
+                           "connection", "timeout", "temporarily")
 
-[Reconciliation Agent]
-{recon_summary}
+    def _is_transient(exc: BaseException) -> bool:
+        msg = str(exc).lower()
+        return any(kw in msg for kw in _TRANSIENT_KEYWORDS)
 
-[Revenue Leakage Agent]
-{leakage_summary}
+    started_at = time.time()
+    last_exc: BaseException | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        if attempt > 0:
+            delay = _RETRY_DELAYS[attempt - 1]
+            print(f"[AGENT_RETRY] {label} attempt={attempt} delay={delay}", flush=True)
+            await anyio.sleep(delay)
 
-[Compliance Agent]
-{compliance_summary}
+        text_parts: list[str] = []
+        options = _mcp_options(max_turns=max_turns, model=model)
 
-[Invoice Drafting Agent]
-{invoice_summary}
+        try:
+            async for message in query(prompt=prompt, options=options):
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            text_parts.append(block.text)
+                elif isinstance(message, ResultMessage):
+                    cost_usd = message.total_cost_usd
+                    elapsed  = time.time() - started_at
+                    cost_val = f"{cost_usd:.6f}" if cost_usd is not None else "none"
+                    print(f"[AGENT_DONE] {label} elapsed={elapsed:.1f} cost={cost_val}", flush=True)
 
-STEPS
-=====
-1. Synthesise all upstream findings into 5–7 key takeaways.
-   Each takeaway must be specific, concise, and actionable. Examples:
-     - "3 users logged hours on public holidays — requires client approval or reversal."
-     - "rishabh.a billed Entain-CRM but is NOT in the SOW team — dispute risk."
-     - "Estimated $X revenue at risk from rate mismatches and unlogged Slack work."
-     - "Invoice draft total: $Y — 2 lines flagged for role mismatch review."
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _MAX_RETRIES and _is_transient(exc):
+                continue  # retry
+            raise  # non-transient or exhausted retries
 
-2. Call generate_full_report with key_takeaways_json set to a JSON array of your 5–7 takeaways.
+        result = "".join(text_parts)
 
-3. Print a plain-text executive summary covering:
-   - Invoice readiness (READY / BLOCKED / NEEDS REVIEW) with reason.
-   - Top 3 revenue risks to address before sending the invoice.
-   - Top 3 compliance blockers.
-   - Any quick wins (e.g., timesheets that can be easily recovered or corrected).
-""".strip()
+        # Cache the summary so RESUME=1 can restore it without re-running the agent
+        state_key = _STATE_FILE_MAP.get(label)
+        if state_key and result:
+            summary_path = Path(OUT_DIR) / "agent_state" / f"{state_key}_summary.txt"
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text(result)
+
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -341,70 +196,138 @@ STEPS
 # ---------------------------------------------------------------------------
 
 async def main() -> None:
-    print(f"[orchestrator] Starting Revenue Intelligence Pipeline", flush=True)
-    print(f"[orchestrator] Agents: {MODEL}  |  Review: {REVIEW_MODEL}  |  Data: {DATA_DIR}  |  Output: {OUT_DIR}", flush=True)
+    print(f"[orchestrator] Starting pipeline  data={DATA_DIR}  model={MODEL}  review={REVIEW_MODEL}", flush=True)
 
-    # Phase 1a — Normalization
-    print("\n[Phase 1/3] Normalization Agent", flush=True)
-    norm_summary = await _run_agent("Normalization Agent", _NORMALIZATION_PROMPT)
+    # ── Phase 1: parallel ───────────────────────────────────────────────
+    p1: dict[str, str] = {}
+    async with anyio.create_task_group() as tg:
+        async def _norm():
+            try:
+                p1["norm"] = await _run_agent("Normalization Agent", prompts.NORMALIZATION)
+            except Exception as _e:
+                print(f"[Normalization Agent] ERROR: {_e}", file=sys.stderr, flush=True)
+                import traceback; traceback.print_exc()
+                raise
+        async def _contract():
+            if STAGGER_DELAY:
+                await anyio.sleep(STAGGER_DELAY)
+            try:
+                p1["contract"] = await _run_agent("Contract Agent", prompts.CONTRACT)
+            except Exception as _e:
+                print(f"[Contract Agent] ERROR: {_e}", file=sys.stderr, flush=True)
+                import traceback; traceback.print_exc()
+                raise
+        async def _slack():
+            if STAGGER_DELAY:
+                await anyio.sleep(STAGGER_DELAY * 2)
+            try:
+                p1["slack"] = await _run_agent("Context Mining Agent", prompts.SLACK_MINING)
+            except Exception as _e:
+                print(f"[Context Mining Agent] ERROR: {_e}", file=sys.stderr, flush=True)
+                import traceback; traceback.print_exc()
+                raise
+        tg.start_soon(_norm)
+        tg.start_soon(_contract)
+        tg.start_soon(_slack)
 
-    # Phase 1b — Contract Interpreter
-    print("\n[Phase 2/3] Contract Agent", flush=True)
-    contract_summary = await _run_agent("Contract Agent", _CONTRACT_PROMPT)
+    norm_summary     = p1["norm"]
+    contract_summary = p1["contract"]
+    slack_summary    = p1["slack"]
 
-    # Phase 1c — Context Mining (Slack)
-    print("\n[Phase 3/3] Context Mining Agent", flush=True)
-    slack_summary = await _run_agent("Context Mining Agent", _SLACK_MINING_PROMPT)
+    # ── Phase 2 ─────────────────────────────────────────────────────────
+    recon_summary = await _run_agent("Reconciliation Agent", prompts.RECONCILIATION)
 
-    # Phase 2 — Reconciliation
-    print("\n[Phase 4] Reconciliation Agent", flush=True)
-    recon_summary = await _run_agent("Reconciliation Agent", _RECONCILIATION_PROMPT)
+    # ── Phase 3: parallel ───────────────────────────────────────────────
+    p3: dict[str, str] = {}
+    async with anyio.create_task_group() as tg:
+        async def _leakage():
+            try:
+                p3["leakage"] = await _run_agent("Revenue Leakage Agent", prompts.LEAKAGE)
+            except Exception as _e:
+                print(f"[Revenue Leakage Agent] ERROR: {_e}", file=sys.stderr, flush=True)
+                import traceback; traceback.print_exc()
+                raise
+        async def _compliance():
+            if STAGGER_DELAY:
+                await anyio.sleep(STAGGER_DELAY)
+            try:
+                p3["compliance"] = await _run_agent("Compliance Agent", prompts.COMPLIANCE)
+            except Exception as _e:
+                print(f"[Compliance Agent] ERROR: {_e}", file=sys.stderr, flush=True)
+                import traceback; traceback.print_exc()
+                raise
+        tg.start_soon(_leakage)
+        tg.start_soon(_compliance)
 
-    # Phase 3a — Revenue Leakage
-    print("\n[Phase 5] Revenue Leakage Agent", flush=True)
-    leakage_summary = await _run_agent("Revenue Leakage Agent", _LEAKAGE_PROMPT)
+    leakage_summary    = p3["leakage"]
+    compliance_summary = p3["compliance"]
 
-    # Phase 3b — Compliance
-    print("\n[Phase 6] Compliance Agent", flush=True)
-    compliance_summary = await _run_agent("Compliance Agent", _COMPLIANCE_PROMPT)
+    # ── Phase 4 ─────────────────────────────────────────────────────────
+    invoice_summary = await _run_agent("Invoice Drafting Agent", prompts.INVOICE)
 
-    # Phase 4 — Invoice Drafting
-    print("\n[Phase 7] Invoice Drafting Agent", flush=True)
-    invoice_summary = await _run_agent("Invoice Drafting Agent", _INVOICE_PROMPT)
-
-    # Phase 5 — Review & Alert
-    print("\n[Phase 8] Review & Alert Agent", flush=True)
-    review_prompt = _review_prompt(
+    # ── Phase 5 ─────────────────────────────────────────────────────────
+    review_prompt = prompts.review(
         norm_summary, contract_summary, slack_summary,
         recon_summary, leakage_summary, compliance_summary, invoice_summary,
     )
-    review_summary = await _run_agent("Review & Alert Agent", review_prompt, max_turns=10, model=REVIEW_MODEL)
+    review_summary = await _run_agent(
+        "Review & Alert Agent", review_prompt, max_turns=10, model=REVIEW_MODEL,
+    )
 
-    # Guaranteed report generation — write directly from state files so the
-    # report always lands in OUT_DIR regardless of what the Review Agent did.
-    _generate_report_from_state(review_summary)
+    # ── Phase 6: Digest Agent ────────────────────────────────────────────
+    _summaries_for_digest = {}
+    for _sk in ("leakage_findings", "slack_signals", "compliance_findings",
+                "invoice_draft", "reconciled", "work_units"):
+        _sp = Path(OUT_DIR) / "agent_state" / f"{_sk}_summary.txt"
+        if _sp.exists():
+            _summaries_for_digest[_sk] = _sp.read_text()
 
-    print("\n[orchestrator] Pipeline complete.", flush=True)
+    digest_raw = await _run_agent(
+        "Digest Agent", prompts.digest(_summaries_for_digest), max_turns=1,
+    )
+
+    # Parse JSON from agent output and persist to ai_digest.json
+    import json as _json, re as _re
+    try:
+        _raw = digest_raw.strip()
+        _raw = _re.sub(r'^```(?:json)?\s*', '', _raw, flags=_re.MULTILINE)
+        _raw = _re.sub(r'\s*```$', '', _raw)
+        _m = _re.search(r'\{[\s\S]*\}', _raw)
+        if _m:
+            _digest_data = _json.loads(_m.group())
+            _digest_path = Path(OUT_DIR) / "agent_state" / "ai_digest.json"
+            _digest_path.parent.mkdir(parents=True, exist_ok=True)
+            _digest_path.write_text(_json.dumps(_digest_data, indent=2))
+            print(f"[orchestrator] Digest saved -> {_digest_path}", flush=True)
+    except Exception as _e:
+        print(f"[orchestrator] Digest JSON parse failed: {_e}", file=sys.stderr, flush=True)
+
+    print("[orchestrator] Pipeline complete.", flush=True)
+
+    # Always regenerate the report after Phase 6 so ai_digest.json is included.
+    _generate_report_from_state(review_summary, force=True)
 
 
-def _generate_report_from_state(review_summary: str) -> None:
+def _generate_report_from_state(review_summary: str, force: bool = False) -> None:
     """
     Load all agent state files and call report.generate() directly.
-    This guarantees the HTML report is written to OUT_DIR even if the
-    Review & Alert Agent wrote its output elsewhere or skipped the tool call.
+    Always called after Phase 6 (Digest Agent) so ai_digest.json is included.
+
+    force=True skips the "already exists" check so the report is always
+    regenerated with the latest digest.
     """
     import glob
     import json
     import re
     from pathlib import Path as _Path
 
-    # Check if report already exists (agent called the tool correctly)
-    existing = glob.glob(str(_Path(OUT_DIR) / "audit_*.html"))
-    if existing:
-        print(f"[orchestrator] Report already at {existing[0]}", flush=True)
-        return
+    if not force:
+        existing = glob.glob(str(_Path(OUT_DIR) / "audit_*.html"))
+        if existing:
+            print(f"[orchestrator] Report already at {existing[0]}", flush=True)
+            return
 
-    print("[orchestrator] Report not found in OUT_DIR — generating directly from state files...", flush=True)
+    print("[orchestrator] Generating report from state files (digest included)...", flush=True)
 
     state_dir = _Path(OUT_DIR) / "agent_state"
 
@@ -440,12 +363,21 @@ def _generate_report_from_state(review_summary: str) -> None:
             if len(takeaways) >= 7:
                 break
 
+    # Extract structured insights block from the review agent's output
+    executive_insights: dict = {}
+    insights_match = re.search(r'<insights_json>\s*(.*?)\s*</insights_json>', review_summary, re.DOTALL)
+    if insights_match:
+        try:
+            executive_insights = json.loads(insights_match.group(1))
+        except Exception:
+            pass
+
     from audit.loader import load_all
     from audit.checks import run_all
-    from audit.report import generate
+    from audit.report_builder import generate
 
     ctx = load_all()
-    issues, hours_issues = run_all(ctx)
+    issues, hours_issues = run_all()
 
     data_version = _Path(DATA_DIR).name
     out_path = generate(
@@ -464,13 +396,30 @@ def _generate_report_from_state(review_summary: str) -> None:
         invoice_draft=invoice  or None,
         slack_signals=slack    or None,
         work_units_data=work_units or None,
+        reconciled_data=reconciled or None,
+        executive_insights=executive_insights or None,
     )
     print(f"[orchestrator] Report written to {out_path}", flush=True)
 
 
 if __name__ == "__main__":
+    import traceback as _tb
+
+    def _print_exc_group(exc: BaseException, depth: int = 0) -> None:
+        """Recursively print ExceptionGroup sub-exceptions."""
+        indent = "  " * depth
+        causes = getattr(exc, "exceptions", None)
+        if causes:
+            print(f"{indent}ExceptionGroup ({len(causes)} sub-exception(s)): {exc}", file=sys.stderr)
+            for i, sub in enumerate(causes, 1):
+                print(f"\n{indent}--- Sub-exception {i}/{len(causes)} ---", file=sys.stderr)
+                _print_exc_group(sub, depth + 1)
+        else:
+            _tb.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
+
     try:
         anyio.run(main)
-    except Exception as e:
-        print(f"[orchestrator] Fatal: {e}", file=sys.stderr)
+    except BaseException as e:
+        print(f"\n[orchestrator] Fatal: {e}", file=sys.stderr)
+        _print_exc_group(e)
         sys.exit(1)
