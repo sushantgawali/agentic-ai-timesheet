@@ -6,7 +6,7 @@ Detects five categories of revenue leakage:
   2. unlogged_work              — Slack signals of work done with no timesheet entry
   3. cap_overage                — hours logged beyond the per-user monthly contract cap
   4. scope_creep_untagged       — scope change signals in Slack with no formal change order
-  5. contract_hours_underbilling — employee billed significantly fewer hours than their HR contract
+  5. contract_hours_underbilling — billed hours materially below the SOW-agreed monthly commitment
 """
 from collections import defaultdict
 
@@ -17,7 +17,7 @@ def detect_revenue_leakage(
     contract_model:    dict,
     proj_actual_hours: dict,
     proj_budget_hours: dict,
-    loader_context:    dict = None,
+    loader_context:    dict = None,  # kept for backwards-compat; no longer used
 ) -> dict:
     """
     Identify all revenue leakage signals and estimate their financial impact.
@@ -217,61 +217,45 @@ def detect_revenue_leakage(
             })
 
     # ------------------------------------------------------------------ #
-    # 6. Contract hours underbilling                                      #
-    # Employees with a contract_hrs commitment who billed materially      #
-    # fewer hours in a month than their contract specifies.               #
+    # 6. Contract hours underbilling (SOW-based)                         #
+    # Flag (user, project, month) combos where billed hours fall         #
+    # materially below the SOW-agreed monthly_hours for that member.     #
+    # Uses the same user_proj_month dict built for cap_overage (§3).     #
     # ------------------------------------------------------------------ #
-    if loader_context is None:
-        try:
-            from audit.loader import load_all as _load_all
-            loader_context = _load_all()
-        except Exception:
-            loader_context = {}
-    emp_contract_hrs: dict = loader_context.get("emp_contract_hrs", {})
+    _UNDERBILL_THRESHOLD = 0.70  # flag if actual < 70% of SOW monthly_hours
 
-    if emp_contract_hrs:
-        # Aggregate billable hours per (user, month)
-        user_month_hours: dict = defaultdict(float)
-        for wu in billable_units:
-            month = wu["date"][:7] if len(wu.get("date", "")) >= 7 else "unknown"
-            user_month_hours[(wu["user"], month)] += wu.get("hours_declared", 0.0)
-
-        # contract_hrs represents the standard daily hours (e.g. 8h/day).
-        # Monthly expectation = daily_hrs × 22 working days (avg).
-        _WORKING_DAYS_PER_MONTH = 22
-        _UNDERBILL_THRESHOLD = 0.70  # flag if actual < 70% of expected
-
-        for (user, month), billed_h in user_month_hours.items():
-            contract_daily = emp_contract_hrs.get(user, 0.0)
-            if contract_daily <= 0:
+    for (user, project, month), billed_h in user_proj_month.items():
+        for pname, pdata in projects_model.items():
+            if pname.lower() not in project.lower() and project.lower() not in pname.lower():
                 continue
-            expected_monthly = round(contract_daily * _WORKING_DAYS_PER_MONTH, 1)
-            if billed_h >= expected_monthly * _UNDERBILL_THRESHOLD:
-                continue
-            shortfall = round(expected_monthly - billed_h, 1)
-            # Use canonical rate for impact estimate
-            rate = 0.0
-            for wu in billable_units:
-                if wu["user"] == user:
-                    rate = wu.get("canonical_rate") or wu.get("hourly_rate") or 0.0
-                    if rate:
-                        break
-            impact = round(shortfall * rate, 2) if rate else None
-            findings.append({
-                "type":    "contract_hours_underbilling",
-                "subtype": "hours_below_contract",
-                "user":    user,
-                "date":    f"{month}-01",
-                "project": None,
-                "description": (
-                    f"{user} billed {billed_h:.1f}h in {month} vs contract expectation of "
-                    f"{expected_monthly:.1f}h/month ({contract_daily}h/day × {_WORKING_DAYS_PER_MONTH} days) — "
-                    f"{shortfall:.1f}h shortfall"
-                    + (f", estimated impact: ${impact:,.2f}" if impact else "")
-                ),
-                "estimated_impact": impact,
-                "severity":         "WARNING",
-            })
+            team_map = pdata.get("team_map", {})
+            member = next(
+                (m for k, m in team_map.items()
+                 if k in user.lower() or user.lower() in k),
+                None,
+            )
+            if member:
+                sow_monthly = member.get("monthly_hours", 0)
+                rate        = member.get("rate", 0.0)
+                if sow_monthly > 0 and billed_h < sow_monthly * _UNDERBILL_THRESHOLD:
+                    shortfall = round(sow_monthly - billed_h, 1)
+                    impact    = round(shortfall * rate, 2) if rate else None
+                    findings.append({
+                        "type":    "contract_hours_underbilling",
+                        "subtype": "hours_below_sow",
+                        "user":    user,
+                        "date":    f"{month}-01",
+                        "project": project,
+                        "description": (
+                            f"{user} billed {billed_h:.1f}h on '{project}' in {month} "
+                            f"vs SOW commitment of {sow_monthly}h/month — "
+                            f"{shortfall:.1f}h shortfall"
+                            + (f", estimated impact: ${impact:,.2f}" if impact else "")
+                        ),
+                        "estimated_impact": impact,
+                        "severity":         "WARNING",
+                    })
+            break  # matched project — move on
 
     # ---- Summarise ----
     total_impact = round(sum(f["estimated_impact"] or 0 for f in findings), 2)
