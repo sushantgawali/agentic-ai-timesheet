@@ -398,6 +398,7 @@ def _generate_report_from_state(review_summary: str, force: bool = False) -> Non
         work_units_data=work_units or None,
         reconciled_data=reconciled or None,
         executive_insights=executive_insights or None,
+        contract_model=contract or None,
     )
     print(f"[orchestrator] Report written to {out_path}", flush=True)
 

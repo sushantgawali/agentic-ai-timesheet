@@ -730,11 +730,20 @@ def _render_budget(
     proj_budget_cost:  dict,
     proj_actual_hours: dict,
     proj_actual_cost:  dict,
+    contract_model:    dict = None,
 ) -> str:
-    if not proj_budget_hours:
-        return '<p style="color:#6b7280;font-style:italic">No project budget data found (pm_projects.csv).</p>'
+    # Build SOW caps: monthly_cap_hours and monthly_value per project
+    sow_projects: dict = {}
+    if contract_model:
+        for pname, pdata in contract_model.get("projects", {}).items():
+            sow_projects[pname] = {
+                "monthly_cap_hours": pdata.get("monthly_cap_hours") or 0,
+                "monthly_value":     pdata.get("monthly_value") or "",
+            }
 
     all_projs = sorted(set(proj_budget_hours) | set(proj_actual_hours))
+    if not all_projs:
+        return '<p style="color:#6b7280;font-style:italic">No project budget data found (pm_projects.csv / SOW).</p>'
     td = "padding:8px 12px;border-bottom:1px solid #f3f4f6;vertical-align:middle"
 
     rows_html = ""
@@ -743,6 +752,16 @@ def _render_budget(
         ah  = proj_actual_hours.get(proj, 0)
         bc  = proj_budget_cost.get(proj, 0)
         ac  = proj_actual_cost.get(proj, 0)
+
+        # Fall back to SOW data when pm_projects.csv has no budget
+        sow = sow_projects.get(proj, {})
+        sow_cap_h = sow.get("monthly_cap_hours", 0) or 0
+        sow_value = sow.get("monthly_value", "") or ""
+        bh_source = "csv"
+        if not bh and sow_cap_h:
+            bh = sow_cap_h
+            bh_source = "sow"
+
         pct = (ah / bh * 100) if bh > 0 else None
 
         if pct is None:
@@ -775,16 +794,36 @@ def _render_budget(
             f'<span style="color:{c_color}">{"+" if c_delta > 0 else ""}${c_delta:,.0f}</span>'
         ) if bc else "—"
 
+        # Budget hours cell — badge SOW-sourced values
+        if bh_source == "sow":
+            bh_cell = (
+                f'{bh:,.0f}h '
+                f'<span style="background:#7c3aed;color:#fff;border-radius:3px;'
+                f'padding:0 5px;font-size:0.65rem;font-weight:700" '
+                f'title="Sourced from SOW monthly_cap_hours">SOW</span>'
+            )
+        else:
+            bh_cell = f'{bh:,.0f}h' if bh else "—"
+
+        # Budget cost cell — show SOW monthly_value as reference if no csv cost
+        if not bc and sow_value:
+            bc_cell = (
+                f'<span style="color:#6b7280;font-size:0.78rem" '
+                f'title="Monthly contract value from SOW">{esc(sow_value)}</span>'
+            )
+        else:
+            bc_cell = f'${bc:,.0f}' if bc else "—"
+
         _dp = esc(proj.lower())
         rows_html += (
             f'<tr style="{row_bg}" data-project="{_dp}">'
             f'<td style="{td};font-weight:600">{esc(proj)}</td>'
             f'<td style="{td};text-align:center">{status_html}</td>'
             f'<td style="{td};text-align:right">{ah:,.1f}h</td>'
-            f'<td style="{td};text-align:right">{bh:,.0f}h</td>'
+            f'<td style="{td};text-align:right">{bh_cell}</td>'
             f'<td style="{td};text-align:right">{h_delta_str}</td>'
             f'<td style="{td};text-align:right">${ac:,.0f}</td>'
-            f'<td style="{td};text-align:right">${bc:,.0f}</td>'
+            f'<td style="{td};text-align:right">{bc_cell}</td>'
             f'<td style="{td};text-align:right">{c_delta_str}</td>'
             f'</tr>'
         )
@@ -820,7 +859,10 @@ def _render_budget(
         f'<tbody>{rows_html}</tbody>'
         f'</table></div>'
     )
-    source = _source_chips(["pm_projects.csv (budget_hours, budget_cost)", "kimai_timesheets.csv (actuals)"])
+    src_chips = ["pm_projects.csv (budget_hours, budget_cost)", "kimai_timesheets.csv (actuals)"]
+    if sow_projects:
+        src_chips.append("SOW documents (monthly_cap_hours, monthly_value)")
+    source = _source_chips(src_chips)
     return table + source
 
 
@@ -1738,7 +1780,7 @@ table td[style*="font-style:italic"] { white-space: normal; overflow: visible; }
 .col-tip::after {
   content: attr(data-tip);
   display: none; position: absolute;
-  bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
   background: #1f2937; color: #f9fafb;
   font-size: 0.72rem; font-weight: 400; line-height: 1.45;
   text-transform: none; letter-spacing: 0;
@@ -1925,6 +1967,7 @@ def generate(
     work_units_data:     dict = None,
     reconciled_data:     dict = None,
     executive_insights:  dict = None,
+    contract_model:      dict = None,
 ) -> str:
     """
     Write output/audit_{version}_{model_short}_YYYY-MM-DD.html and return the file path.
@@ -2007,6 +2050,7 @@ def generate(
     budget_html     = _render_budget(
         proj_budget_hours or {}, proj_budget_cost or {},
         proj_actual_hours or {}, proj_actual_cost or {},
+        contract_model=contract_model,
     )
     all_issues_html     = _render_all_issues_table(issues, work_units_data, leakage_findings, compliance_findings)
     quality_html        = _render_data_quality(work_units_data)
