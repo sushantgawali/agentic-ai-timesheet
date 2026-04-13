@@ -1,6 +1,8 @@
 # Agentic AI Timesheet Auditor
 
-An 8-agent revenue intelligence pipeline that audits timesheet exports, detects billing issues, checks contract compliance, and generates an actionable HTML report — before the invoice goes out.
+A 9-agent revenue intelligence pipeline that audits timesheet exports, detects billing issues, checks contract compliance, and generates an actionable HTML report — before the invoice goes out.
+
+Live reports: **[sushantgawali.github.io/agentic-ai-timesheet](https://sushantgawali.github.io/agentic-ai-timesheet/)**
 
 ---
 
@@ -17,28 +19,28 @@ An 8-agent revenue intelligence pipeline that audits timesheet exports, detects 
 
 ## Agent pipeline
 
-Eight focused sub-agents run sequentially. Each calls MCP tools, writes output to shared state on disk, and passes a plain-text summary to the next phase.
+Nine focused sub-agents run in a directed pipeline. Each calls MCP tools, writes output to shared state on disk, and passes a plain-text summary to the next phase.
 
 ```
 audit_agent_sdk.py  (orchestrator)
         │
         ├── Phase 1 ──────────────────────────────────────────────────┐
         │   ├── Normalization Agent    → build_work_units             │
-        │   ├── Contract Agent         → build_contract_model         │  parallel-ready
+        │   ├── Contract Agent         → build_contract_model         │  parallel
         │   └── Context Mining Agent   → extract_slack_signals        │
         │                                                              ┘
-        │              writes ──────────────────────────────────────────────────────────┐
-        │                     work_units.json                                           │
-        │                     contract_model.json                                       │
-        │                     slack_signals.json                                        │
-        │                                                              ┌────────────────┘
-        ├── Phase 2                                                    │ output/agent_state/
-        │   └── Reconciliation Agent   → reconcile_work  ─────────────┤ (flat-file JSON store)
-        │         reads:  work_units + contract_model                  │ full findings saved here;
-        │         writes: reconciled.json                              │ tool responses return only
-        │                                                              │ summaries to avoid context
-        ├── Phase 3 ──────────────────────────────────────────────────┤ overflow
-        │   ├── Revenue Leakage Agent  → detect_revenue_leakage       │
+        │              writes to output/agent_state/ ──────────────────────────────┐
+        │                     work_units.json                                       │
+        │                     contract_model.json                                   │
+        │                     slack_signals.json                                    │
+        │                                                              ┌────────────┘
+        ├── Phase 2                                                    │ flat-file JSON store
+        │   └── Reconciliation Agent   → reconcile_work               │ full findings saved here;
+        │         reads:  work_units + contract_model                  │ tool responses return only
+        │         writes: reconciled.json                              │ summaries to avoid context
+        │                                                              │ overflow
+        ├── Phase 3 ──────────────────────────────────────────────────┤
+        │   ├── Revenue Leakage Agent  → detect_revenue_leakage       │  parallel
         │   │     reads:  reconciled + slack_signals + contract_model  │
         │   │     writes: leakage_findings.json                        │
         │   └── Compliance Agent       → run_compliance_checks         │
@@ -50,13 +52,18 @@ audit_agent_sdk.py  (orchestrator)
         │         reads:  reconciled + contract_model                  │
         │         writes: invoice_draft.json                           │
         │                                                              │
-        └── Phase 5                                                    │
-            └── Review & Alert Agent  → generate_full_report ─────────┘
-                  reads:  all state files
-                  writes: output/audit_*.html
+        ├── Phase 5                                                    │
+        │   └── Review & Alert Agent  → generate_full_report ─────────┘
+        │         reads:  all state files
+        │         writes: output/audit_*.html
+        │
+        └── Phase 6
+            └── Digest Agent          → (no MCP tool)
+                  reads:  all *_summary.txt caches
+                  writes: ai_digest.json  (embedded in final report)
 ```
 
-Each agent talks to `audit/mcp_server.py` over stdio (MCP protocol). State files persist across runs — if the pipeline crashes mid-way, earlier phases don't need to re-run.
+Each agent talks to `audit/mcp_server.py` over stdio (MCP protocol). State files persist across runs — if the pipeline crashes mid-way, set `RESUME=1` to skip phases that already have state files.
 
 ---
 
@@ -64,14 +71,15 @@ Each agent talks to `audit/mcp_server.py` over stdio (MCP protocol). State files
 
 The generated HTML report (`output/audit_*.html`) contains:
 
-- **Invoice status badge** — ACTION REQUIRED / NEEDS REVIEW / READY
+- **AI digest panel** — headline revenue risk, compliance blockers, invoice status, and priority actions
+- **Intelligence panel** — top revenue risks, compliance blockers, quick wins, and critical human-review items
 - **Key takeaways** — 5–7 AI-generated, specific, actionable insights
 - **Revenue leakage** — grouped by type, each with USD impact estimate
 - **Compliance blockers** — CRITICAL and WARNING findings with policy clause references
 - **Unlogged Slack work** — messages that signal billable activity with no timesheet
-- **Invoice draft** — line items by project with contract rates and flag review
+- **Invoice draft** — line items by project with contract rates and flagged lines for review
 - **Project budget vs actuals** — hours and cost against SOW limits
-- **Audit checks** — 15 legacy checks (invalid timestamps, overlaps, rate mismatches, etc.)
+- **Audit checks** — 18 deterministic checks (invalid timestamps, overlaps, leave-day billing, etc.)
 - **Data quality** — per-flag accordion tables with source file evidence
 
 All sections are collapsible accordions with fixed-height scrollable tables and source file chips per finding.
@@ -80,21 +88,42 @@ All sections are collapsible accordions with fixed-height scrollable tables and 
 
 ## Quick start
 
+### Run locally and publish to GitHub Pages
+
 ```bash
-pip install claude-agent-sdk mcp anyio
-export ANTHROPIC_API_KEY=sk-...
-export DATA_DIR=data/v5
-python audit_agent_sdk.py
-# Report written to output/audit_v5_haiku_YYYY-MM-DD.html
+./run_local.sh          # uses data/v5, full run
+./run_local.sh v3       # uses data/v3
+RESUME=1 ./run_local.sh # skip agents whose state files already exist
 ```
 
-Optional env vars:
+Requires the Claude CLI (`claude login`) — no API key needed.
+
+### Run directly with an API key
+
+```bash
+pip install -r requirements.txt
+export ANTHROPIC_API_KEY=sk-...
+export DATA_DIR=data/v5
+python3.11 audit_agent_sdk.py
+# Report written to output/audit_v5_sonnet_YYYY-MM-DD.html
+```
+
+### Streamlit UI
+
+```bash
+python3.11 -m streamlit run app.py
+```
+
+### Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATA_DIR` | `data` | Path to the data folder |
-| `OUT_DIR` | `output` | Where the HTML report is written |
-| `MODEL` | `claude-haiku-4-5-20251001` | Claude model to use |
+| `OUT_DIR` | `output` | Where HTML report and agent state are written |
+| `MODEL` | `claude-haiku-4-5-20251001` | Model for phases 1–4 |
+| `REVIEW_MODEL` | `claude-sonnet-4-6` | Model for phase 5 (Review & Alert) |
+| `RESUME` | `0` | Set to `1` to skip agents with existing state files |
+| `STAGGER_DELAY` | `0` | Seconds between parallel agent launches (rate-limit guard) |
 
 ---
 
@@ -105,10 +134,10 @@ Drop any combination of CSVs into `DATA_DIR`. The loader scans column headers an
 | Role | Key columns |
 |------|-------------|
 | Timesheets | `user`, `date`, `hours`, `begin`, `end` |
-| Employees | `user`, `hourly_rate` / `rate`, `status` |
+| Employees | `user`, `hourly_rate` / `rate`, `status`, `contract_hrs` |
 | Assignments | `user`, `project` |
-| Leave | `user`, `date`, `leave_type` |
-| Projects | `project`, `status`, `budget` |
+| Leave | `user`, `date`, `leave_type`, `all_day` |
+| Projects | `project`, `status`, `budget`, `end_date` |
 | Slack | `user`, `date`, `text` / `channel` |
 | Holidays | `date`, `holiday` / `name` |
 
@@ -121,35 +150,38 @@ HR policy guidelines go in `DATA_DIR/documents/guidelines/` (`.pdf` or `.docx`).
 
 ```
 .
-├── audit_agent_sdk.py          # Orchestrator — runs 8 agents sequentially
+├── audit_agent_sdk.py          # Orchestrator — runs 9 agents in 6 phases
+├── app.py                      # Streamlit UI to run pipeline and view reports
+├── run_local.sh                # Run pipeline and publish report to GitHub Pages
+├── generate_index.py           # GitHub Pages index builder
 │
 ├── audit/
-│   ├── mcp_server.py           # stdio MCP server — 13 tools (phases 1–5)
+│   ├── mcp_server.py           # stdio MCP server — exposes tools to agents
 │   ├── loader.py               # File-agnostic CSV + DOCX loader
-│   ├── checks.py               # 15 legacy audit checks
-│   ├── report.py               # HTML report generator
-│   └── agents/
+│   ├── checks.py               # 18 deterministic audit checks
+│   ├── report_builder.py       # HTML report generator
+│   ├── prompts.py              # Agent prompt strings and builder functions
+│   ├── email_signals.py        # Email-based signal parser
+│   └── tools/                  # MCP tool implementations (called by mcp_server.py)
 │       ├── normalization.py    # Build WorkUnit records from timesheets
 │       ├── contract.py         # Parse SOW + guidelines → ContractModel
 │       ├── slack_mining.py     # Classify Slack messages → signals
-│       ├── reconciliation.py   # Mark billable/non-billable, detect dupes
+│       ├── reconciliation.py   # Mark billable/non-billable, detect duplicates
 │       ├── leakage.py          # Detect revenue leakage, estimate USD impact
-│       ├── compliance.py       # Run 6 compliance checks (CRITICAL/WARNING)
+│       ├── compliance.py       # Run compliance checks (CRITICAL/WARNING)
 │       └── invoice.py          # Draft invoice line items with contract rates
 │
 ├── data/
-│   ├── v2/                     # Baseline dataset (8 CSVs)
+│   ├── v2/                     # Baseline dataset
 │   ├── v3/                     # Extended dataset
 │   └── v5/                     # Full dataset
-│       ├── *.csv               # 9 CSV files
+│       ├── *.csv               # Timesheet, employee, assignment, leave, etc.
 │       └── documents/
-│           ├── sow/            # 17 SOW DOCX files
+│           ├── sow/            # SOW DOCX files
 │           └── guidelines/     # HR policy PDFs + DOCXs
 │
 ├── output/                     # Generated reports (git-ignored)
-│   └── agent_state/            # Inter-agent state (JSON, git-ignored)
+│   └── agent_state/            # Inter-agent state JSON files (git-ignored)
 │
-├── docs/                       # Supplementary documentation
-├── generate_index.py           # GitHub Pages index builder
 └── requirements.txt
 ```
