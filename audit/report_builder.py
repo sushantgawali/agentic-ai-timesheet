@@ -512,7 +512,8 @@ def _render_compliance(compliance: dict) -> str:
                 f'… and {len(items)-50} more findings.</td></tr>'
             )
 
-        table = _table_wrap(["User", "Date", "Project", "Description"], rows_html)
+        table = _table_wrap(["User", "Date", "Project", "Description"], rows_html,
+                            col_widths=["15%", "9%", "14%", "62%"])
         body  = _action_hint(action) + _source_chips(sources) + table
         parts.append(_accordion(label, len(items), sev, body, open_=(i == 0)))
 
@@ -804,7 +805,9 @@ def _render_budget(
     ]
     col_group = "".join(f'<col style="width:{w}">' for _, w, _, _t in budget_headers)
     th_cells  = "".join(
-        f'<th style="{th_base};{align};cursor:help" title="{tip}">{lbl}</th>'
+        f'<th style="{th_base};{align}">'
+        f'{lbl}<span class="col-tip" data-tip="{esc(tip)}">?</span>'
+        f'</th>'
         for lbl, _, align, tip in budget_headers
     )
     table = (
@@ -1723,6 +1726,28 @@ table td[style*="font-style:italic"] { white-space: normal; overflow: visible; }
 .tab-btn.active { background: #2563eb; color: #fff; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
+/* ---- Column tooltips ---- */
+.col-tip {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: #9ca3af; color: #fff;
+  font-size: 0.6rem; font-weight: 700; line-height: 1;
+  cursor: help; margin-left: 4px; vertical-align: middle;
+  position: relative; flex-shrink: 0;
+}
+.col-tip::after {
+  content: attr(data-tip);
+  display: none; position: absolute;
+  bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: #1f2937; color: #f9fafb;
+  font-size: 0.72rem; font-weight: 400; line-height: 1.45;
+  text-transform: none; letter-spacing: 0;
+  padding: 6px 10px; border-radius: 6px;
+  white-space: normal; width: 220px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  z-index: 100; pointer-events: none;
+}
+.col-tip:hover::after { display: block; }
 """
 
 _SEARCH_JS = """
@@ -2021,19 +2046,10 @@ def generate(
         + (len(work_units_data.get("data_quality_issues", [])) if work_units_data else 0)
     )
     timesheet_tab_body = all_issues_html
-    if work_units_data and quality_html:
-        timesheet_tab_body += (
-            f'<div style="margin-top:24px;padding-top:20px;border-top:1px solid #e5e7eb">'
-            f'<div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;'
-            f'letter-spacing:.05em;color:#6b7280;margin-bottom:12px">Breakdown by Issue Type</div>'
-            f'{quality_html}'
-            f'</div>'
-        )
     tab_defs.append(("quality", "Timesheet Issues", all_issues_count, "#6b7280",
                      _tab_section("Timesheet Issues", all_issues_count, "#6b7280", timesheet_tab_body,
                                   "All timesheet findings in one place — rule-based check violations and "
-                                  "data quality problems, sorted by severity. Use the breakdown below for "
-                                  "grouped detail by issue type.")))
+                                  "data quality problems, sorted by severity.")))
     tab_defs.append(("ai_summary", "AI Summary", None, "#7c3aed",
                      _tab_section("AI Summary", None, "#7c3aed", ai_summary_html,
                                   "Structured intelligence panel and natural-language summaries from each "
