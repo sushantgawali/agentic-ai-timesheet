@@ -924,11 +924,15 @@ def _render_all_issues_table(
     SEV_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
 
     rows: list[dict] = []
-    check_types: list[str] = []
+    # list of (check_key, display_label) — key matches data-check on rows, display shown in dropdown
+    check_types: list[tuple[str, str]] = []
+    _check_type_keys: set[str] = set()
 
-    def _add_source(source: str) -> None:
-        if source not in check_types:
-            check_types.append(source)
+    def _add_check_type(key: str, display: str) -> None:
+        """Register a filter option; key must match what goes in data-check."""
+        if key not in _check_type_keys:
+            check_types.append((key, display))
+            _check_type_keys.add(key)
 
     # ---- Rule-based check issues ----
     for issue in issues:
@@ -947,7 +951,8 @@ def _render_all_issues_table(
             "project":  issue.get("project", "") or "",
             "detail":   detail or issue.get("brief", ""),
         })
-        _add_source(source)
+        # Display just the label (no "CHECK-N —" prefix)
+        _add_check_type(check.lower(), label)
 
     # ---- Compliance agent findings ----
     if compliance_findings:
@@ -963,7 +968,7 @@ def _render_all_issues_table(
                 "project":  finding.get("project", "") or "",
                 "detail":   finding.get("description", ""),
             })
-            _add_source(source)
+            _add_check_type(ftype.lower(), source)
 
     # ---- Leakage agent findings ----
     if leakage_findings:
@@ -979,7 +984,7 @@ def _render_all_issues_table(
                 "project":  finding.get("project", "") or "",
                 "detail":   finding.get("description", ""),
             })
-            _add_source(source)
+            _add_check_type(ftype.lower(), source)
 
     # ---- Data quality issues from normalisation agent ----
     if work_units_data:
@@ -996,7 +1001,7 @@ def _render_all_issues_table(
                 "project":  issue.get("project", "") or "",
                 "detail":   issue.get("description", ""),
             })
-            _add_source(source)
+            _add_check_type(source.lower(), source)
 
     if not rows:
         return '<p style="color:#6b7280;font-style:italic">No issues found.</p>'
@@ -1018,8 +1023,8 @@ def _render_all_issues_table(
         "font-size:0.78rem;background:#f3f4f6;color:#374151;cursor:pointer"
     )
     check_opts = "".join(
-        f'<option value="{esc(c.lower())}">{esc(c)}</option>'
-        for c in sorted(check_types)
+        f'<option value="{esc(key)}">{esc(display)}</option>'
+        for key, display in sorted(check_types, key=lambda x: x[1])
     )
     filter_bar = (
         f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;'
