@@ -51,44 +51,43 @@ if [[ -z "${REPORT}" ]]; then
   echo "ERROR: No report found in ${OUT_DIR}/. Pipeline may have failed."
   exit 1
 fi
+REPORT_FILE=$(basename "${REPORT}")
 echo ""
 echo "Report generated: ${REPORT}"
 
-# --- Step 3: Pull existing gh-pages reports into site/ ---
+# --- Step 3: Clone gh-pages into a temp dir so we preserve history ---
 echo ""
 echo "[2/4] Fetching existing reports from gh-pages..."
-rm -rf "${SITE_DIR}"
-mkdir -p "${SITE_DIR}"
+WORK_DIR=$(mktemp -d)
+trap 'rm -rf "${WORK_DIR}"' EXIT
 
-git fetch origin gh-pages 2>/dev/null || true
+REMOTE_URL=$(git remote get-url origin)
+
 if git ls-remote --exit-code origin gh-pages > /dev/null 2>&1; then
-  git --work-tree="${SITE_DIR}" checkout origin/gh-pages -- . 2>/dev/null || true
-  echo "  Previous reports restored to ${SITE_DIR}/"
+  git clone --depth=1 --branch gh-pages "${REMOTE_URL}" "${WORK_DIR}" 2>/dev/null
+  echo "  Previous reports cloned to ${WORK_DIR}/"
 else
   echo "  No existing gh-pages branch — starting fresh."
+  git init -b gh-pages "${WORK_DIR}"
+  git -C "${WORK_DIR}" remote add origin "${REMOTE_URL}"
 fi
 
-# --- Step 4: Copy new report and regenerate index ---
+# --- Step 4: Copy only the new report and regenerate index ---
 echo ""
 echo "[3/4] Adding new report and regenerating index..."
-cp "${OUT_DIR}"/audit_*.html "${SITE_DIR}/"
-python3.11 generate_index.py "${SITE_DIR}"
+cp "${REPORT}" "${WORK_DIR}/${REPORT_FILE}"
+python3.11 generate_index.py "${WORK_DIR}"
+echo "  Copied: ${REPORT_FILE}"
 echo "  index.html updated."
 
 # --- Step 5: Push to gh-pages ---
 echo ""
 echo "[4/4] Pushing to gh-pages..."
-REMOTE_URL=$(git remote get-url origin)
-
-cd "${SITE_DIR}"
-git init -b gh-pages
-git config user.name "$(git -C .. config user.name 2>/dev/null || echo 'Local Run')"
-git config user.email "$(git -C .. config user.email 2>/dev/null || echo 'local@run')"
-git remote add origin "${REMOTE_URL}"
-git add .
-git commit -m "audit: add report $(date +%Y-%m-%d)"
-git push origin gh-pages --force
-cd ..
+git -C "${WORK_DIR}" config user.name "$(git config user.name 2>/dev/null || echo 'Local Run')"
+git -C "${WORK_DIR}" config user.email "$(git config user.email 2>/dev/null || echo 'local@run')"
+git -C "${WORK_DIR}" add "${REPORT_FILE}" index.html
+git -C "${WORK_DIR}" commit -m "audit: add ${REPORT_FILE}"
+git -C "${WORK_DIR}" push origin gh-pages
 
 echo ""
 echo "========================================"
