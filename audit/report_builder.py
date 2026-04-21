@@ -436,17 +436,16 @@ def _render_leakage(leakage: dict, slack_signals: dict = None) -> str:
         action       = LEAKAGE_ACTIONS.get(ftype, "Review and resolve before invoicing.")
 
         # Per-type column layout
-        # unlogged_work: project & impact both null — description already has channel+message
-        # contract_hours_underbilling: monthly aggregate, no project
-        no_project  = (ftype in ("contract_hours_underbilling", "unlogged_work"))
+        # unlogged_work: project null — description already has channel+message
+        no_project  = (ftype == "unlogged_work")
         no_impact   = (ftype == "unlogged_work")
 
         if ftype == "unlogged_work":
             headers    = ["User", "Date", "Project", "Slack Message"]
             col_widths = ["11%", "8%", "13%", "auto"]
         elif ftype == "contract_hours_underbilling":
-            headers    = ["User", "Month", "Description", "Impact (USD)"]
-            col_widths = ["11%", "8%", "auto", "13%"]
+            headers    = ["User", "Month", "Project", "Description", "Impact (USD)"]
+            col_widths = ["11%", "8%", "13%", "auto", "13%"]
         else:
             headers    = ["User", "Date", "Project", "Description", "Impact (USD)"]
             col_widths = ["11%", "8%", "11%", "auto", "13%"]
