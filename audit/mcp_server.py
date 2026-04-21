@@ -261,6 +261,120 @@ async def list_tools() -> list[Tool]:
         ),
 
         # ---------------------------------------------------------------- #
+        # Agent-loop follow-up tools                                        #
+        # ---------------------------------------------------------------- #
+        Tool(
+            name="read_sow_section",
+            description=(
+                "Contract Agent follow-up tool — re-read a Statement of Work document "
+                "to look up a specific clause, rate, or appendix. Use this when the "
+                "ContractModel has missing or ambiguous data (e.g., rate=0.0 for a "
+                "team member). Accepts `project` (project name as seen in the model) "
+                "and `query` (free-text search term). Returns an excerpt and source "
+                "filename if found."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project": {"type": "string", "description": "Project name."},
+                    "query":   {"type": "string", "description": "Text to search for."},
+                },
+                "required": ["project", "query"],
+            },
+        ),
+        Tool(
+            name="find_rate_for_member",
+            description=(
+                "Contract Agent follow-up tool — scan the SOW text for a rate line "
+                "matching a specific team member, useful when build_contract_model "
+                "returned rate=0.0 because the rate lives in a rate-card appendix "
+                "instead of the team roster table."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "project":     {"type": "string"},
+                    "member_name": {"type": "string"},
+                },
+                "required": ["project", "member_name"],
+            },
+        ),
+        Tool(
+            name="classify_ambiguous_messages",
+            description=(
+                "Context Mining Agent follow-up tool — submit classifications for "
+                "ambiguous Slack messages surfaced by extract_slack_signals. Pass "
+                "`verdicts_json` as a JSON-encoded array of {user, date, signal_types, "
+                "rationale} objects. The merged results are saved to slack_signals "
+                "state so downstream agents see them as regular signals."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "verdicts_json": {
+                        "type": "string",
+                        "description": (
+                            "JSON array of verdict objects. signal_types must be a "
+                            "subset of [work_activity, approval, scope_change, escalation]."
+                        ),
+                    },
+                },
+                "required": ["verdicts_json"],
+            },
+        ),
+        Tool(
+            name="get_leakage_findings",
+            description=(
+                "Review Agent query tool — fetch leakage findings filtered by user, "
+                "project, and/or finding_type. Use this to investigate a specific "
+                "person or project when synthesizing the final report."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user":         {"type": "string"},
+                    "project":      {"type": "string"},
+                    "finding_type": {"type": "string"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="get_unlogged_signals",
+            description=(
+                "Review Agent query tool — fetch Slack work-without-timesheet signals "
+                "filtered by user. Pair with get_leakage_findings to spot users who "
+                "appear in both buckets and compute compound exposure."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user":    {"type": "string"},
+                    "project": {"type": "string"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="compute_compound_exposure",
+            description=(
+                "Review Agent query tool — combine filtered leakage impact with an "
+                "estimate of unlogged Slack work exposure (signals × hours_per_signal "
+                "× hourly_rate_assumption). Use this to produce a single ranked "
+                "dollar figure for a cross-cutting finding."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user":                   {"type": "string"},
+                    "project":                {"type": "string"},
+                    "hourly_rate_assumption": {"type": "number", "default": 100.0},
+                },
+                "required": ["user"],
+            },
+        ),
+
+        # ---------------------------------------------------------------- #
         # Phase 5 — Review & Alert                                          #
         # ---------------------------------------------------------------- #
         Tool(
@@ -517,10 +631,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     s for s in result["signals"]
                     if "scope_change" in s["signal_types"]
                 ][:5],
+                "ambiguous_count":   result.get("ambiguous_count", 0),
+                "sample_ambiguous":  result.get("ambiguous_messages", [])[:10],
                 "hint": (
-                    "Slack signals saved. unlogged_work_count = Slack work_activity messages "
-                    "with no corresponding timesheet entry — potential revenue leakage. "
-                    "scope_change signals = informal extra-work requests needing change orders."
+                    "Slack signals saved. unlogged_work_count = confident work_activity "
+                    "messages with no corresponding timesheet entry. "
+                    "ambiguous_count = messages the regex could not classify confidently. "
+                    "Review the sample_ambiguous list and, if any look like genuine "
+                    "work signals, call classify_ambiguous_messages with your verdicts "
+                    "to merge them into the signals state."
                 ),
             })
 
@@ -698,6 +817,124 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 "invoice_grand_total":    invoice.get("grand_total", 0) if invoice else 0,
                 "slack_unlogged_signals": slack_state.get("unlogged_work_count", 0) if slack_state else 0,
             })
+
+        elif name == "read_sow_section":
+            from audit.tools.sow_search import find_sow_section
+            sow_docs = load_sow_documents()
+            result = find_sow_section(
+                sow_docs,
+                query=arguments.get("query", ""),
+                project=arguments.get("project", ""),
+            )
+            return ok(result)
+
+        elif name == "find_rate_for_member":
+            from audit.tools.sow_search import find_rate_for_member
+            sow_docs = load_sow_documents()
+            result = find_rate_for_member(
+                sow_docs,
+                member_name=arguments.get("member_name", ""),
+                project=arguments.get("project", ""),
+            )
+            if result["found"]:
+                cm = _load_state("contract_model")
+                if cm:
+                    proj = cm.get("projects", {}).get(arguments.get("project", ""))
+                    if proj:
+                        mname = arguments.get("member_name", "").lower().strip()
+                        member = proj.get("team_map", {}).get(mname)
+                        if member and (member.get("rate") or 0) == 0:
+                            member["rate"] = result["rate"]
+                            member["rate_source"] = "sow_text_scan"
+                            _save_state("contract_model", cm)
+                            result["persisted"] = True
+            return ok(result)
+
+        elif name == "classify_ambiguous_messages":
+            from audit.tools.slack_classifier import apply_ai_classifications
+            slack_state = _require_state("slack_signals", "classify_ambiguous_messages")
+            raw = arguments.get("verdicts_json", "[]") or "[]"
+            try:
+                verdicts = json.loads(raw)
+                if not isinstance(verdicts, list):
+                    return err("verdicts_json must be a JSON array")
+            except Exception as e:
+                return err(f"Invalid verdicts_json: {e}")
+
+            merged = apply_ai_classifications(
+                slack_state.get("ambiguous_messages", []), verdicts
+            )
+
+            existing_signals  = slack_state.get("signals", [])
+            existing_unlogged = slack_state.get("work_without_timesheet", [])
+            for m in merged:
+                sig = {
+                    "user":          m["user"],
+                    "date":          m["date"],
+                    "channel":       m.get("channel", ""),
+                    "text":          m.get("text", ""),
+                    "signal_types":  m["signal_types"],
+                    "has_timesheet": False,
+                    "ai_rationale":  m.get("ai_rationale", ""),
+                }
+                existing_signals.append(sig)
+                if "work_activity" in m["signal_types"]:
+                    existing_unlogged.append(sig)
+
+            slack_state["signals"]                = existing_signals
+            slack_state["work_without_timesheet"] = existing_unlogged
+            slack_state["unlogged_work_count"]    = len(existing_unlogged)
+            slack_state["total_signals"]          = len(existing_signals)
+            _save_state("slack_signals", slack_state)
+            return ok({
+                "status":             "merged",
+                "added_count":        len(merged),
+                "new_total_signals":  len(existing_signals),
+                "new_unlogged_count": len(existing_unlogged),
+            })
+
+        elif name == "get_leakage_findings":
+            from audit.tools.state_queries import filter_leakage_findings
+            leakage = _require_state("leakage_findings", "get_leakage_findings")
+            result = filter_leakage_findings(
+                leakage,
+                user=arguments.get("user"),
+                project=arguments.get("project"),
+                finding_type=arguments.get("finding_type"),
+            )
+            result["findings"] = sorted(
+                result["findings"],
+                key=lambda f: float(f.get("estimated_impact") or 0),
+                reverse=True,
+            )[:20]
+            return ok(result)
+
+        elif name == "get_unlogged_signals":
+            from audit.tools.state_queries import filter_unlogged_signals
+            slack = _require_state("slack_signals", "get_unlogged_signals")
+            result = filter_unlogged_signals(
+                slack,
+                user=arguments.get("user"),
+                project=arguments.get("project"),
+            )
+            result["signals"] = result["signals"][:20]
+            return ok(result)
+
+        elif name == "compute_compound_exposure":
+            from audit.tools.state_queries import compound_exposure
+            leakage = _require_state("leakage_findings", "compute_compound_exposure")
+            slack   = _require_state("slack_signals",    "compute_compound_exposure")
+            user    = arguments.get("user")
+            if not user:
+                return err("user is required")
+            result = compound_exposure(
+                leakage=leakage,
+                slack=slack,
+                user=user,
+                project=arguments.get("project"),
+                hourly_rate_assumption=float(arguments.get("hourly_rate_assumption", 100.0)),
+            )
+            return ok(result)
 
         else:
             return err(f"Unknown tool: {name}")
