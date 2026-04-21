@@ -212,7 +212,7 @@ async def main() -> None:
             if STAGGER_DELAY:
                 await anyio.sleep(STAGGER_DELAY)
             try:
-                p1["contract"] = await _run_agent("Contract Agent", prompts.CONTRACT)
+                p1["contract"] = await _run_agent("Contract Agent", prompts.CONTRACT, max_turns=10)
             except Exception as _e:
                 print(f"[Contract Agent] ERROR: {_e}", file=sys.stderr, flush=True)
                 import traceback; traceback.print_exc()
@@ -221,7 +221,7 @@ async def main() -> None:
             if STAGGER_DELAY:
                 await anyio.sleep(STAGGER_DELAY * 2)
             try:
-                p1["slack"] = await _run_agent("Context Mining Agent", prompts.SLACK_MINING)
+                p1["slack"] = await _run_agent("Context Mining Agent", prompts.SLACK_MINING, max_turns=10)
             except Exception as _e:
                 print(f"[Context Mining Agent] ERROR: {_e}", file=sys.stderr, flush=True)
                 import traceback; traceback.print_exc()
@@ -271,7 +271,7 @@ async def main() -> None:
         recon_summary, leakage_summary, compliance_summary, invoice_summary,
     )
     review_summary = await _run_agent(
-        "Review & Alert Agent", review_prompt, max_turns=10, model=REVIEW_MODEL,
+        "Review & Alert Agent", review_prompt, max_turns=15, model=REVIEW_MODEL,
     )
 
     # ── Phase 6: Digest Agent ────────────────────────────────────────────
