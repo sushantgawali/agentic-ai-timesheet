@@ -71,6 +71,16 @@ audit_agent_sdk.py  (orchestrator)
 
 Each agent talks to `audit/mcp_server.py` over stdio (MCP protocol). State files persist across runs — if the pipeline crashes mid-way, set `RESUME=1` to skip phases that already have state files.
 
+### Genuine agent loops
+
+Three agents are not single-shot tool callers — they observe, decide, and re-query:
+
+- **Contract Agent** — after loading SOWs, if a project is missing a billing rate or shows a suspicious rate, it calls `find_rate_for_member(project, member)` and `read_sow_section(project, query)` to re-read the contract and recover the real number instead of silently defaulting to `0.0`.
+- **Context Mining (Slack) Agent** — a regex classifier handles the confident cases; messages the regex cannot decide surface as an `ambiguous_messages` bucket that the agent reads itself and batches back through `classify_ambiguous_messages`, so AI judgement (not just regex) drives the final Slack signals.
+- **Review & Alert Agent** — instead of restating upstream summaries, it calls `get_leakage_findings`, `get_unlogged_signals`, and `compute_compound_exposure` to quantify cross-cutting patterns (e.g. the same person appearing in both leakage and unlogged-work signals) in USD before writing the executive insights.
+
+Each loop has a `max_turns` budget (Contract/Slack: 10, Review: 15) so the agent can iterate without runaway tool calls.
+
 ---
 
 ## Report
